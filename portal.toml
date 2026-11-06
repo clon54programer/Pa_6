@@ -1,0 +1,22 @@
+# Configuración de producción: Apache termina TLS y hace proxy a 127.0.0.1:8080
+[servidor]
+host = "127.0.0.1"
+puerto = 8080
+confiar_proxy = true
+cuerpo_maximo_bytes = 16384
+
+[portal]
+base_datos = "/var/lib/portal/portal.db"
+zona_horaria = "America/Bogota"
+ttl_sesion_s = 1800
+cookie_segura = true
+csrf_obligatorio = true
+
+[seguridad]
+intentos_maximos = 5
+ventana_s = 600
+bloqueo_s = 120
+intentos_maximos_ip = 20
+
+[rendimiento]
+umbral_degradado_ms = 10000

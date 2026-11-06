@@ -1,0 +1,9 @@
+[project]
+name = "portal-portocaribe"
+version = "1.0.0"
+description = "Portal de Clientes PortoCaribe (demostración)"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.setuptools]
+packages = ["portal"]
