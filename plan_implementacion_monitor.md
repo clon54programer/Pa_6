@@ -1,60 +1,71 @@
-# Plan de implementación — Monitor PortoCaribe (Python, stdlib-first)
+# Plan de implementación — Monitor PortoCaribe (Python, stdlib-first) — v2
+
+> **Decisiones confirmadas (2026-11-06)**
+>
+> - **Ejecución:** una VM de monitoreo dentro de la topología.
+> - **Entrega:** CSV + JSONL. PostgreSQL no es destino de carga.
+> - **Frecuencia:** una corrida diaria a las **23:00** (America/Bogota).
+> - **Alcance:** solo el dataset; las medidas y gráficos de Power BI los elabora otra persona.
+> - **Pendiente:** definir si Asterisk / fail2ban / DHCP son servicios reales o datos
+>   simulados (ver §8).
 
 Documento de trabajo para construir el script descrito en
 [`plan_de_script_python.md`](plan_de_script_python.md). El objetivo es un monitor
 ejecutable por CLI, sin dependencias obligatorias fuera de la biblioteca estándar,
-que produzca un dataset plano (CSV/JSONL/SQLite y, opcionalmente, PostgreSQL) listo
-para Power BI.
+que produzca un dataset plano listo para Power BI.
 
 ---
 
 ## 1. Objetivo y alcance
 
 **Objetivo.** Implementar `python -m monitor` (Python ≥ 3.11) que ejecute sondas de
-disponibilidad, rendimiento, QoS y seguridad sobre la infraestructura de
-PortoCaribe, normalice los resultados en un esquema único y los exporte para analítica.
+disponibilidad, rendimiento, QoS y seguridad sobre la infraestructura de PortoCaribe,
+normalice los resultados y los deje en:
+
+- `data/raw/YYYY-MM-DD/HHMMSS_<run_id>.jsonl` — evidencia cruda, una línea por resultado.
+- `data/csv/metricas_YYYY-MM-DD.csv` — dataset del día, columnas fijas.
 
 **Dentro del alcance**
 
-- Sondas activas: ICMP, TCP (RTSP 554, SIP 5060, PostgreSQL 5432), HTTP/HTTPS, DNS.
-- Lectura pasiva: CDR de Asterisk, `fail2ban`, `auth.log`/journal, contadores de `iptables`.
-- QoS: `iperf3` en modo JSON y análisis de DSCP a partir de capturas `pcap`.
-- Persistencia: JSONL crudo → SQLite → CSV/JSONL → carga opcional a PostgreSQL.
+- Sondas activas por red: ICMP, TCP (RTSP 554, PostgreSQL 5432), HTTP/HTTPS, DNS y SIP 5060.
+- Lectura de fuentes locales o compartidas: CDR de Asterisk, `fail2ban`, `auth.log`,
+  contadores de `iptables`, leases de DHCP.
+- QoS opcional: `iperf3 -J` y DSCP a partir de capturas `pcap`.
 - Modo `--simulate` para demo e informe sin topología levantada.
-- Pruebas unitarias con `unittest` y fixtures (sin red).
+- Pruebas con `unittest` y fixtures, sin red.
 
 **Fuera del alcance**
 
-- Construcción de la topología, reglas de firewall o servicios (se asume existente).
-- Dashboard de Power BI (solo se entrega el dataset y las medidas sugeridas).
-- Agente distribuido multi-host (v1 es un solo proceso; el diseño deja la puerta abierta).
+- Carga a PostgreSQL, dashboard, medidas DAX o gráficos (los asume otra persona).
+- Construcción de la topología, reglas de firewall o servicios.
+- Agente distribuido multi-host: v1 es un proceso en una sola VM.
 
 **Supuestos**
 
-1. Linux con Python 3.12 (verificado en el entorno: 3.12.3) y `tomllib` disponible.
-2. El script se ejecuta en una VM con ruta a las VLAN 30/40/50/60 del laboratorio.
-3. `ping`, `psql` y `tcpdump` existen; `iperf3`, `tshark` y `fail2ban-client` pueden faltar.
-4. Zona horaria `America/Bogota`; se almacena UTC y se muestra local.
-5. Frecuencia objetivo: cada 1–5 minutos vía cron/systemd timer.
+1. VM Linux con Python 3.12 y `tomllib` (verificado: 3.12.3).
+2. La VM tiene ruta a las VLAN 30/40/50/60; se valida en F0 con `ip route` y `ping`.
+3. `ping` y `psql` existen; `iperf3`, `tcpdump`, `fail2ban-client` y `asterisk` pueden faltar.
+4. Zona horaria `America/Bogota` (sin horario de verano); se guarda local y UTC.
+5. Una corrida diaria a las 23:00, lanzada por cron o `systemd` timer.
 
 ---
 
 ## 2. Principios de diseño
 
-1. **Stdlib primero.** Cada requisito se resuelve con la biblioteca estándar; solo se
-   acepta un tercero (`psycopg`) como extra opcional para PostgreSQL.
-2. **Adaptadores con degradación.** Toda herramienta externa se encapsula; si falta,
-   la sonda devuelve `SKIPPED` con motivo, nunca una excepción que tumbe la corrida.
-3. **Configuración declarativa.** Objetivos, umbrales y rutas en TOML; el código no
-   contiene IPs ni credenciales.
-4. **Un fallo no detiene el monitoreo.** Timeout por sonda, reintentos acotados y
-   `try/except` por objetivo; al final siempre se escribe resumen y código de salida.
-5. **Crudo inmutable + ETL idempotente.** Cada corrida deja un JSONL propio; SQLite
-   deduplica por huella; el CSV se regenera desde SQLite.
-6. **Seguro por defecto.** `subprocess` sin `shell=True`, credenciales por
-   `PGPASSFILE`, timeouts explícitos, sin volcar cuerpos de respuesta a los logs.
-7. **El monitor también se observa.** Logs rotativos, resumen por corrida, `run_id`,
-   versión de esquema y verificación de reloj.
+1. **Stdlib primero.** Todo se resuelve con la biblioteca estándar; el proyecto queda
+   con `dependencies = []`.
+2. **Adaptadores con degradación.** Toda herramienta o archivo externo se encapsula;
+   si falta, la sonda devuelve `SKIPPED` con motivo, no una excepción.
+3. **Configuración declarativa.** IPs, rutas y umbrales en TOML; el código no contiene
+   infraestructura ni credenciales.
+4. **Un fallo no detiene la corrida.** Timeout por sonda, reintentos acotados y
+   `try/except` por objetivo; siempre se escribe resumen y código de salida.
+5. **Crudo inmutable + derivado reconstruible.** El JSONL es la evidencia; el CSV del
+   día se regenera desde los JSONL (idempotente, sin base de datos).
+6. **Procedencia explícita.** Cada fila declara si el dato vino de red, de un archivo,
+   de AMI o de una simulación (`fuente`). Nada simulado se mezcla en silencio.
+7. **Seguro por defecto.** `subprocess` sin `shell=True`, credenciales por variable de
+   entorno o `PGPASSFILE`, timeouts explícitos, sin volcar cuerpos de respuesta a logs.
 
 ---
 
@@ -69,11 +80,11 @@ PortoCaribe, normalice los resultados en un esquema único y los exporte para an
                 │
    ┌────────────┼───────────────┬──────────────┬──────────────┐
  cámaras      portal        servicios       QoS          seguridad
- (ICMP/TCP)  (HTTP/TLS)   (PG/SIP/DNS)  (iperf3/pcap)  (logs/iptables)
+ (ICMP/TCP)  (HTTP/TLS)   (PG/SIP/DNS)  (iperf3/pcap)  (red/archivo)
    └────────────┴───────────────┴──────────────┴──────────────┘
                 │  Resultado (dataclass) normalizado
                 ▼
-   JSONL crudo → SQLite (huella única) → CSV/JSONL → COPY a PostgreSQL (opcional)
+   JSONL por corrida (crudo) ──► CSV del día (reconstruido, idempotente)
                 │
                 ▼
         logs + resumen de corrida + exit code
@@ -86,7 +97,7 @@ PortoCaribe, normalice los resultados en un esquema único y los exporte para an
 | Presentación | CLI, subcomandos, códigos de salida | `cli.py`, `__main__.py` |
 | Dominio | Modelos, validación, registro de sondas | `modelos.py`, `config.py` |
 | Sondas | Medición pura, sin escritura | `sondas/*.py` |
-| Persistencia | JSONL, SQLite, export, reportes | `writers.py`, `etl/*.py` |
+| Salida | JSONL crudo y reconstrucción del CSV | `writers.py`, `exportacion.py` |
 | Soporte | Lock, reintentos, tiempo, red | `bloqueo.py`, `utils/*.py` |
 
 ---
@@ -95,32 +106,30 @@ PortoCaribe, normalice los resultados en un esquema único y los exporte para an
 
 | Necesidad | Módulo stdlib | Uso concreto |
 |---|---|---|
-| CLI y subcomandos | `argparse` | `run`, `export`, `report`, `prune`, `validate` |
-| Configuración | `tomllib` | Lectura de `monitor.toml` (solo lectura, 3.11+) |
-| Modelos y enums | `dataclasses`, `enum`, `typing` | `Resultado`, `Objetivo`, `Modulo`, `Estado` |
+| CLI y subcomandos | `argparse` | `run`, `export`, `prune`, `validate` |
+| Configuración | `tomllib` | Lectura de `monitor.toml` (solo lectura) |
+| Modelos y enums | `dataclasses`, `enum`, `typing` | `Resultado`, `Objetivo`, `Estado` |
 | Tiempo | `datetime`, `zoneinfo`, `time` | UTC + local; `perf_counter()` para latencias |
 | Concurrencia | `concurrent.futures`, `threading` | Sondas I/O en paralelo; evento de parada |
 | ICMP | `subprocess` | `ping -n -q -c 4 -W 1` (stdlib no hace ICMP sin root) |
-| TCP | `socket` | Conectar a 554, 5060/TCP, 5432 |
-| UDP / SIP | `socket`, `secrets` | OPTIONS a Asterisk, `branch`/`Call-ID` aleatorios |
+| TCP | `socket` | 554, 5432, 5060/TCP |
+| UDP / SIP | `socket`, `secrets` | OPTIONS a Asterisk; `branch` y `Call-ID` aleatorios |
+| AMI Asterisk | `socket` | Protocolo de texto sobre TCP 5038 (`CoreShowChannels`) |
 | HTTP/HTTPS | `http.client`, `ssl` | Código, TTFB, tiempo total, versión TLS |
 | DNS | `socket.getaddrinfo` | Disponibilidad y latencia de resolución |
-| CSV / JSON | `csv`, `json` | Export y JSONL de evidencia |
-| Buffer y ETL | `sqlite3` | Histórico, deduplicación, vistas de disponibilidad |
+| CSV / JSON | `csv`, `json` | Dataset y evidencia |
 | Logs | `logging`, `logging.handlers` | `RotatingFileHandler` (5 MB × 5) |
-| Archivos | `pathlib`, `gzip`, `shutil` | Retención y compresión |
+| Archivos | `pathlib`, `tempfile`, `os.replace`, `gzip` | Escritura atómica y retención |
 | Instancia única | `fcntl` | `flock` sobre `data/.lock` |
-| Apagado limpio | `signal` | SIGINT/SIGTERM → terminar corrida y escribir resumen |
-| Estadística | `statistics` | Promedio, mediana, p95 por recurso |
+| Apagado limpio | `signal` | SIGINT/SIGTERM → cerrar y escribir resumen |
 | IDs y huellas | `uuid`, `hashlib` | `run_id`; SHA-256 para deduplicar |
-| Correo | `smtplib`, `email.message` | Alertas opcionales (solo stdlib) |
 | IPs y VLANs | `ipaddress` | Validar inventario y mapear CIDR → VLAN |
 | Capturas pcap | `struct` | Leer cabeceras y extraer DSCP sin `tshark` |
-| Pruebas | `unittest`, `unittest.mock` | Fixtures de parsers y servidores locales |
-| Sistema | `os`, `sys`, `subprocess` | `systemctl`, `journalctl`, `psql`, `iperf3` |
+| Pruebas | `unittest`, `unittest.mock` | Fixtures y servidores locales |
+| Sistema | `os`, `sys`, `shutil`, `subprocess` | `systemctl`, `journalctl`, `psql`, `iperf3` |
 
-**Única dependencia opcional:** `psycopg[binary]` para escribir directo en PostgreSQL;
-si no está, se usa `psql` + `COPY` desde CSV (ruta 100 % stdlib).
+**Dependencias de terceros: ninguna.** No hay `psycopg`, `scapy`, `requests` ni
+`pandas`; PostgreSQL se monitorea con `psql` (cliente del sistema), no se usa como destino.
 
 ---
 
@@ -129,12 +138,12 @@ si no está, se usa `psql` + `COPY` desde CSV (ruta 100 % stdlib).
 | Herramienta | Uso | Si falta |
 |---|---|---|
 | `ping` (iputils) | Estado y RTT de cámaras/servidores | Sonda `SKIPPED`; el resto continúa |
+| `psql` | `SELECT 1` y estado de la base | Se reporta solo el puerto TCP 5432 |
 | `iperf3` (–J) | Pérdida, jitter, ancho de banda | `SKIPPED`, columnas QoS nulas |
 | `tcpdump` | Captura pcap para DSCP | `SKIPPED`; QoS queda solo con iperf3 |
-| `psql` | `SELECT 1` y `COPY` a PostgreSQL | Se reporta solo el puerto TCP 5432 |
-| `asterisk` CLI | Llamadas activas y canales | Se usa solo el CDR (`Master.csv`) |
-| `fail2ban-client` | IPs baneadas | Se parsea `/var/log/fail2ban.log` |
-| `systemctl`/`journalctl` | Estado de Apache, DHCP, logs de kernel | Se leen archivos en `/var/log` |
+| `asterisk` CLI | Llamadas activas en el propio host | Se usa AMI (red) o solo el CDR |
+| `fail2ban-client` | Baneos en el propio host | Se parsea el log exportado |
+| `systemctl` / `journalctl` | Estado de Apache/DHCP y logs de kernel | Se leen archivos en `/var/log` |
 
 Cada sonda declara `requiere: tuple[str, ...]`; el runner consulta `shutil.which()`
 antes de ejecutarla y registra el motivo del `SKIPPED`.
@@ -143,16 +152,15 @@ antes de ejecutarla y registra el motivo del `SKIPPED`.
 
 ## 6. Modelo de datos
 
-### 6.1 Tabla canónica `metricas` (formato largo)
+### 6.1 Tabla canónica (una fila por sonda y objetivo)
 
-Se conservan **exactamente** los campos pedidos en el documento y se agregan columnas
-opcionales; en Power BI las nulas simplemente no participan en cada visual.
+Se conservan los campos pedidos en el documento y se agregan columnas opcionales.
 
 | Campo | Tipo | Obligatorio | Ejemplo / notas |
 |---|---|---|---|
-| `timestamp` | DATETIME local | sí | `2026-11-06 08:30:00` (America/Bogota) |
-| `timestamp_utc` | DATETIME UTC | sí | `2026-11-06 13:30:00` |
-| `run_id` | TEXT | sí | UUID4 de la corrida |
+| `timestamp` | DATETIME local | sí | `2026-11-06 23:00:07` |
+| `timestamp_utc` | DATETIME UTC | sí | `2026-11-07 04:00:07` |
+| `run_id` | TEXT | sí | UUID4; prefijo `sim-` en modo simulado |
 | `modulo` | TEXT | sí | `Camaras`, `PortalWeb`, `BaseDatos`, `VoIP`, `QoS`, `Seguridad` |
 | `recurso_target` | TEXT | sí | IP o nombre del recurso |
 | `nombre_recurso` | TEXT | no | `Cam_Muelle_1`, `Portal_Clientes` |
@@ -171,16 +179,16 @@ opcionales; en Power BI las nulas simplemente no participan en cada visual.
 | `duracion_llamada_s` | REAL | no | Desde el CDR |
 | `dscp` | INTEGER | no | 46 (EF), 34 (AF41) |
 | `detalle` | TEXT | no | Texto corto (≤200 caracteres) para diagnóstico |
-| `fuente` | TEXT | sí | `ping`, `http`, `psql`, `asterisk-cdr`, `journal`, `pcap` |
+| `fuente` | TEXT | sí | `ping`, `tcp`, `http`, `psql`, `sip`, `ami`, `asterisk-cdr`, `iperf3`, `pcap`, `journal`, `archivo`, `systemd`, `simulado` |
 | `schema_version` | INTEGER | sí | `1` |
 
-**Reglas de normalización**
+**Reglas**
 
 - Unidades fijas: ms, %, Mbps, segundos; sin sufijos en los valores.
-- Booleanos nunca: `estado` es enumeración de texto (mejor para Power BI).
-- `timestamp` local sin offset (para el modelo) + `timestamp_utc` (para auditoría).
-- `detalle` sin saltos de línea ni comas problemáticas (el CSV igual va citado).
-- `evento_seguridad` vacío para filas que no son de seguridad.
+- `estado` es texto enumerado, nunca booleano (mejor para Power BI).
+- `timestamp` local sin offset (para el modelo) + `timestamp_utc` (auditoría).
+- Celdas no aplicables quedan vacías (`null` en JSONL), no en cero.
+- Nombres de archivo y columnas en español, estables y documentados.
 
 ### 6.2 Dimensión `inventario.csv`
 
@@ -195,68 +203,26 @@ opcionales; en Power BI las nulas simplemente no participan en cada visual.
 | `criticidad` | `alta` |
 | `habilitado` | `true` |
 
-Permite que Power BI calcule disponibilidad por zona/VLAN sin duplicar metadatos en
-cada fila de métricas.
+Permite que Power BI calcule disponibilidad por zona/VLAN sin repetir metadatos en
+cada fila.
 
-### 6.3 Esquema SQLite
+### 6.3 JSONL, CSV y reconstrucción
 
-```sql
-CREATE TABLE IF NOT EXISTS corridas (
-  run_id TEXT PRIMARY KEY,
-  inicio_utc TEXT NOT NULL,
-  fin_utc TEXT,
-  host TEXT NOT NULL,
-  exit_code INTEGER,
-  version TEXT NOT NULL
-);
+Un archivo JSONL por corrida:
 
-CREATE TABLE IF NOT EXISTS metricas (
-  id INTEGER PRIMARY KEY,
-  huella TEXT NOT NULL UNIQUE,
-  run_id TEXT NOT NULL REFERENCES corridas(run_id),
-  ts_utc TEXT NOT NULL,
-  ts_local TEXT NOT NULL,
-  modulo TEXT NOT NULL,
-  recurso TEXT NOT NULL,
-  nombre TEXT,
-  vlan INTEGER,
-  zona TEXT,
-  estado TEXT NOT NULL,
-  latencia_ms REAL,
-  perdida_pct REAL,
-  jitter_ms REAL,
-  ancho_banda_mbps REAL,
-  http_status INTEGER,
-  puerto INTEGER,
-  evento_seguridad TEXT,
-  sip_code INTEGER,
-  llamadas_activas INTEGER,
-  duracion_llamada_s REAL,
-  dscp INTEGER,
-  detalle TEXT,
-  fuente TEXT NOT NULL,
-  schema_version INTEGER NOT NULL DEFAULT 1
-);
-
-CREATE INDEX IF NOT EXISTS idx_metricas_ts ON metricas(ts_utc);
-CREATE INDEX IF NOT EXISTS idx_metricas_recurso ON metricas(modulo, recurso);
-
-CREATE VIEW IF NOT EXISTS v_disponibilidad_diaria AS
-SELECT date(ts_local) AS fecha,
-       modulo,
-       recurso,
-       COUNT(*) AS chequeos,
-       SUM(CASE WHEN estado IN ('ONLINE','OK') THEN 1 ELSE 0 END) AS exitosos,
-       ROUND(100.0 * SUM(CASE WHEN estado IN ('ONLINE','OK') THEN 1 ELSE 0 END)
-             / COUNT(*), 2) AS disponibilidad_pct,
-       ROUND(AVG(latencia_ms), 2) AS latencia_prom_ms,
-       ROUND(MAX(latencia_ms), 2) AS latencia_max_ms
-FROM metricas
-GROUP BY 1, 2, 3;
+```json
+{"run_id":"4f1c...","timestamp":"2026-11-06 23:00:07","timestamp_utc":"2026-11-07 04:00:07","modulo":"Camaras","recurso_target":"10.30.30.12","nombre_recurso":"Cam_Muelle_1","vlan":30,"zona":"muelles","estado":"ONLINE","tiempo_respuesta_ms":2.41,"perdida_paquetes_pct":0.0,"jitter_ms":null,"ancho_banda_mbps":null,"http_status":null,"puerto":554,"evento_seguridad":null,"sip_code":null,"llamadas_activas":null,"duracion_llamada_s":null,"dscp":null,"detalle":"4/4 paquetes; RTSP 554 abierto","fuente":"ping","schema_version":1}
 ```
 
-La `huella` es `sha256(run_id|modulo|recurso|ts_utc|evento_seguridad)` para que
-reingestar el mismo JSONL no duplique filas.
+- JSONL: `json.dumps(..., ensure_ascii=False)` + salto de línea, `flush` + `os.fsync`.
+- CSV: `utf-8-sig` (Excel y Power BI), `csv.DictWriter`, encabezado fijo, `\r\n`.
+- `export --fecha YYYY-MM-DD` lee todos los JSONL de esa fecha, deduplica por
+  `sha256(run_id|modulo|recurso|timestamp_utc|evento|fuente)`, ordena por
+  `timestamp_utc, modulo, recurso` y reescribe el CSV completo.
+- Escritura atómica: archivo temporal en el mismo directorio + `os.replace`.
+- Exportar dos veces la misma fecha produce un CSV idéntico (mismo hash).
+
+`data/` queda fuera de git (`.gitignore`) salvo `data/.gitkeep`.
 
 ---
 
@@ -265,79 +231,124 @@ reingestar el mismo JSONL no duplique filas.
 | Módulo | Sonda | Técnica stdlib | Salida principal |
 |---|---|---|---|
 | `Camaras` | Ping | `subprocess` + `ping -n -q -c 4 -W 1` | `estado`, `tiempo_respuesta_ms`, `perdida_paquetes_pct` |
-| `Camaras` | RTSP 554 | `socket.create_connection` (y OPTIONS opcional) | `estado`, `puerto`, latencia de conexión |
+| `Camaras` | RTSP 554 | `socket.create_connection` | `estado`, `puerto`, latencia |
 | `PortalWeb` | HTTP/HTTPS | `http.client` + `ssl` + `perf_counter` | `http_status`, tiempos, TLS |
 | `BaseDatos` | PostgreSQL | `socket` + `psql -w -tAc "SELECT 1"` | `estado`, latencia |
 | `VoIP` | SIP 5060 | UDP OPTIONS con `socket` | `sip_code`, `estado` |
-| `VoIP` | Asterisk | `asterisk -rx "core show calls"` + CDR | `llamadas_activas`, `duracion_llamada_s`, `sip_code` |
-| `QoS` | iperf3 | `iperf3 -J` parseado con `json` | `perdida_paquetes_pct`, `jitter_ms`, `ancho_banda_mbps` |
-| `QoS` | DSCP | `tcpdump -w` + parser `pcap` con `struct` | `dscp`, conteos por clase |
-| `Seguridad` | iptables | `journalctl -k` o `/var/log/kern.log` con prefijos | `evento_seguridad`, IP origen/destino, VLAN |
-| `Seguridad` | fail2ban/SSH | `fail2ban-client status <jail>`, `auth.log` | `evento_seguridad`, IPs |
-| `Seguridad` | Inundaciones | `/proc/net/snmp`, `/proc/net/netstat`, pcap | `SYN_FLOOD`, `ICMP_FLOOD` |
+| `VoIP` | Asterisk AMI | Texto sobre TCP 5038 | `llamadas_activas` |
+| `VoIP` | CDR | `csv` sobre `Master.csv` | `duracion_llamada_s`, `sip_code` |
+| `QoS` | iperf3 | `iperf3 -J` + `json` | `perdida_paquetes_pct`, `jitter_ms`, `ancho_banda_mbps` |
+| `QoS` | DSCP | `tcpdump -w` + parser `struct` | `dscp` |
+| `Seguridad` | iptables | `journalctl -k` o log exportado | `evento_seguridad`, IPs, VLAN |
+| `Seguridad` | fail2ban/SSH | `fail2ban-client`, `auth.log` | `evento_seguridad`, IPs |
+| `Seguridad` | Inundaciones | `/proc/net/snmp`, `/proc/net/netstat` | `SYN_FLOOD`, `ICMP_FLOOD` |
 
 ### 7.1 Cámaras (VLAN 30)
 
-- Ping con 4 paquetes, `LC_ALL=C` para parsear siempre en inglés; pérdida y RTT
-  promedio desde la línea de resumen.
-- `estado = ONLINE` si responde al menos un paquete **y** el puerto 554 abre en < 3 s;
-  `DEGRADED` si hay respuesta pero el puerto falla; `OFFLINE` si no hay ICMP.
-- OPTIONS RTSP opcional (fase 2): enviar `OPTIONS rtsp://IP:554/ RTSP/1.0` y aceptar
-  `200`, `401` o `403` como servicio vivo.
+- Ping con 4 paquetes y `LC_ALL=C`; pérdida y RTT desde la línea de resumen.
+- `ONLINE` si responde al menos un paquete **y** el puerto 554 abre en < 3 s;
+  `DEGRADED` si hay ICMP pero el puerto falla; `OFFLINE` si no hay ICMP.
+- OPTIONS RTSP opcional: `OPTIONS rtsp://IP:554/ RTSP/1.0`; `200/401/403` = servicio vivo.
 
 ### 7.2 Portal web (VM1)
 
-- Medición por etapas con `perf_counter`: resolución DNS, conexión TCP, handshake TLS,
-  primer byte (TTFB) y total.
-- `estado = DEGRADED` si `tiempo_respuesta_ms > 10 000` (hipótesis del caso) o si el
-  código es 5xx; `OK` para 2xx/3xx.
-- Verificación del servicio Apache con `systemctl is-active apache2` (o `httpd`),
-  registrada como fila aparte con `fuente = systemd`.
-- Sin seguir redirecciones automáticamente (máximo 1 salto, configurable).
+- Medición por etapas: DNS, conexión TCP, handshake TLS, TTFB y total.
+- `DEGRADED` si el total supera 10 s (hipótesis del caso) o el código es 5xx;
+  `OK` para 2xx/3xx.
+- Apache con `systemctl is-active apache2` (o `httpd`), como fila aparte
+  (`fuente = systemd`).
+- Sin redirecciones automáticas (máximo 1 salto, configurable).
 
-### 7.3 PostgreSQL, DNS y DHCP
+### 7.3 PostgreSQL como objetivo
 
-- TCP 5432 como chequeo rápido; si `psql` está disponible, `SELECT 1` cronometrado.
-- Credenciales vía `PGPASSFILE` (permisos 600); nunca en TOML ni en la línea de comandos.
-- DNS: `getaddrinfo` de un nombre de control y latencia; error → `ERROR`.
-- DHCP: `systemctl is-active isc-dhcp-server` o `isc-dhcp-server6` y fecha de
-  modificación del archivo de leases; sin cliente DHCP en stdlib, se documenta la limitación.
+- **Aclaración:** la base de datos es un servicio monitoreado, no el destino del
+  dataset. No se escribe nada en PostgreSQL.
+- TCP 5432 como chequeo rápido; si `psql` está, `SELECT 1` cronometrado con
+  `PGCONNECT_TIMEOUT` y `PGPASSFILE` (600).
+- DNS: `getaddrinfo` de un nombre de control y latencia.
 
 ### 7.4 VoIP
 
 - SIP OPTIONS por UDP con retransmisión T1 (500 ms, 2 intentos); `200/401/403` = vivo.
-- `core show calls` entrega llamadas activas; `core show channels concise` permite
-  contar canales y detectar llamadas de muelle/garita por contexto.
-- CDR: parsear `Master.csv` con `csv`, filtrar por fecha y agregar duración/`disposition`;
-  el código SIP se infiere del `disposition` (`ANSWERED`, `BUSY`, `FAILED`, `NO ANSWER`).
+- **AMI** (si está habilitado): conectar a TCP 5038, `Login`, `Action: CoreShowChannels`,
+  contar eventos `CoreShowChannel` y cerrar. Es la vía limpia desde otra VM, sin SSH.
+- **CDR** (si el archivo es accesible): parsear `Master.csv`, filtrar por fecha y agregar
+  duración y `disposition` (`ANSWERED`, `BUSY`, `FAILED`, `NO ANSWER`).
+- Si no hay AMI ni CDR: solo disponibilidad SIP; `llamadas_activas` y `duracion_llamada_s`
+  quedan nulas.
 
 ### 7.5 QoS
 
-- `iperf3 -c HOST -u -b 20M -t 10 -J` y lectura de `end.sum_received`
-  (`loss_percent`, `jitter_ms`) y `end.sum_sent.bits_per_second`; tolerar variantes del JSON.
+- `iperf3 -c HOST -u -b 20M -t 10 -J`; leer `end.sum_received.loss_percent`,
+  `.jitter_ms` y `end.sum_sent.bits_per_second`, tolerando variantes del JSON.
 - DSCP sin `tshark`: `tcpdump -i IFACE -w captura.pcap -c 500` y parser propio con
   `struct` (magic `0xa1b2c3d4`/`0xa1b23c4d`, Ethernet + 802.1Q, IPv4, TOS → `tos >> 2`).
-  Se agregan conteos por DSCP (EF=46, AF41=34) y se descartan paquetes no-IP.
-- Es la única sonda que genera tráfico pesado: deshabilitada por defecto y ejecutable
-  con `--solo qos` en ventana controlada.
+  Conteos por DSCP (EF=46, AF41=34); se descartan paquetes no-IP.
+- Deshabilitada por defecto (genera tráfico); se ejecuta con `--solo qos` en ventana
+  controlada.
 
 ### 7.6 Seguridad
 
 - **iptables:** las reglas del escenario deben usar prefijos de log
-  (`VLAN30-DROP: `, `VLAN40-DROP: `); el parser los busca en `journalctl -k` o
-  `/var/log/kern.log` y extrae IP origen/destino, puerto, interfaz y VLAN (mapa
-  interfaz→VLAN en configuración).
-- **Contadores:** `iptables -t filter -L INPUT -v -n -x`; se guardan los acumulados y
-  el delta por corrida (el delta es lo que se grafica en Power BI).
-- **fail2ban:** `fail2ban-client status sshd` (baneadas actuales/totales) y respaldo
-  con `/var/log/fail2ban.log` (`Ban`, `Unban`).
-- **SSH:** `auth.log`/`journalctl -u ssh` con regex `Failed password for .* from (\S+)`.
-- **Inundaciones:** líneas `possible SYN flooding` y contadores `ListenOverflows`/
-  `ListenDrops` de `/proc/net/netstat`; ICMP por delta de `/proc/net/snmp`.
+  (`VLAN30-DROP: `, `VLAN40-DROP: `); el parser los busca en el log de kernel local o
+  en la copia exportada, y extrae IP origen/destino, puerto, interfaz y VLAN.
+- **Contadores:** `iptables -t filter -L INPUT -v -n -x`; se guarda el acumulado y el
+  delta contra la corrida anterior (el delta es lo que se grafica).
+- **fail2ban:** `fail2ban-client status sshd` (baneadas actuales/totales) o el log
+  (`Ban`, `Unban`) según el modo configurado.
+- **SSH:** `auth.log` o `journalctl -u ssh` con `Failed password for .* from (\S+)`.
+- **Inundaciones:** `possible SYN flooding`, `ListenOverflows`/`ListenDrops` de
+  `/proc/net/netstat` y delta de `/proc/net/snmp`.
 
 ---
 
-## 8. Configuración (TOML)
+## 8. Fuentes locales vs. red (aclaración de la pregunta 3)
+
+La VM de monitoreo **no puede leer archivos locales de otras VMs**. Eso aplica a
+Asterisk, fail2ban, iptables y DHCP: sus datos viven en el host donde corre el servicio.
+
+### 8.1 Qué se alcanza y qué no
+
+| Dato | Dónde vive | ¿Desde la VM de monitoreo? |
+|---|---|---|
+| Ping, puertos, HTTP, DNS, SIP 5060 | red | **Sí**, sin credenciales |
+| Llamadas activas | Asterisk (CLI local / AMI por red) | CLI **no**; AMI **sí** (TCP 5038) |
+| CDR (`Master.csv`) | disco del host Asterisk | **No**, salvo export/SSH |
+| Baneos de fail2ban | host protegido | **No**, salvo export/SSH |
+| Contadores de iptables | firewall | **No**, salvo export/SSH |
+| Leases/estado de DHCP | gateway | **No**; DHCP es broadcast y no cruza VLAN |
+
+### 8.2 Opciones para los datos locales
+
+| Opción | Ventaja | Costo | Cuándo usarla |
+|---|---|---|---|
+| **Sonda de red** | simple, sin credenciales | solo alcanza lo expuesto | siempre que exista |
+| **AMI de Asterisk** | nativo, stdlib, sin SSH | habilitar usuario de solo lectura | Asterisk real |
+| **SSH puntual** | accede a CLI y archivos | claves, `sudo`, más superficie de ataque | hosts administrados |
+| **Archivo exportado** | simple y robusto | NFS/SMB o `cron` + `scp` en el host | CDR, fail2ban, iptables, DHCP |
+| **Simulación** | demo sin infraestructura | datos no reales | plantilla o evidencia |
+
+**Qué significa “simular con archivos”:** no se finge la red; se preparan archivos de
+ejemplo con el **formato real** (`Master.csv`, `fail2ban.log`, líneas de `iptables`,
+salida de `fail2ban-client`) y el script los procesa igual que a los reales. Así se
+desarrollan y prueban los parsers sin la infraestructura. Para el informe, esas filas
+salen con `fuente = simulado` y `run_id` con prefijo `sim-`, de modo que se puedan
+filtrar y no se confundan con mediciones reales.
+
+### 8.3 Recomendación para el proyecto
+
+1. **Cámaras, portal, PostgreSQL, DNS y SIP:** sondas de red reales desde la VM.
+2. **Asterisk:** habilitar AMI con usuario de solo lectura si es una VM real; si no,
+   dejar solo SIP 5060 y marcar el resto como no recolectado.
+3. **fail2ban / iptables / DHCP:** si la VM de monitoreo no es el host del servicio,
+   usar un export diario a una carpeta compartida (un `cron` pequeño en ese host) o
+   simulación etiquetada. La tercera opción es omitirlos y documentarlo.
+4. **Nunca** reportar datos simulados como si fueran mediciones: la columna `fuente`
+   existe justamente para eso.
+
+---
+
+## 9. Configuración (TOML)
 
 ```toml
 [general]
@@ -346,14 +357,18 @@ timeout_s = 5
 reintentos = 2
 max_workers = 12
 directorio_datos = "data"
-retencion_dias = 90
+retencion_dias = 180
 version_esquema = 1
+
+[salida]
+csv = true
+jsonl = true
+codificacion = "utf-8-sig"
 
 [camaras]
 habilitado = true
 ping_paquetes = 4
 rtsp_puerto = 554
-verificar_rtsp = true
 
 [portal]
 habilitado = true
@@ -361,7 +376,7 @@ url = "https://10.30.50.5/"
 timeout_s = 15
 umbral_degradado_s = 10.0
 
-[base_datos]
+[base_datos]              # objetivo monitoreado; no es destino de escritura
 habilitado = true
 host = "10.30.50.5"
 puerto = 5432
@@ -371,23 +386,32 @@ pgpassfile = "/etc/monitor/pgpass"
 
 [voip]
 habilitado = true
-host_asterisk = "10.30.60.10"
+host = "10.30.60.10"
 sip_puerto = 5060
-cdr = "/var/log/asterisk/cdr-csv/Master.csv"
+ami = false
+ami_puerto = 5038
+ami_usuario = "monitor"
+ami_secreto_env = "ASTERISK_AMI_SECRET"
+cdr = ""                  # ruta local o compartida; vacío = no recolectar
 
 [qos]
 habilitado = false
 servidor_iperf = "10.30.50.20"
 duracion_s = 10
 ancho_banda = "20M"
-interfaz_captura = "eth1"
-dscp = { voz = 46, video = 34 }
+interfaz = "eth1"
 
 [seguridad]
 habilitado = true
+modo = "archivo"          # local | archivo | simulado
+entradas = "/srv/monitor/entradas"
 prefijos_iptables = ["VLAN30-DROP:", "VLAN40-DROP:"]
-log_fail2ban = "/var/log/fail2ban.log"
 jail = "sshd"
+
+[dhcp]
+habilitado = false
+modo = "archivo"
+host = "10.30.40.1"
 
 [[camaras.lista]]
 ip = "10.30.30.12"
@@ -395,131 +419,143 @@ nombre = "Cam_Muelle_1"
 vlan = 30
 zona = "muelles"
 criticidad = "alta"
+
+[[camaras.lista]]
+ip = "10.30.30.13"
+nombre = "Cam_Perimetro_1"
+vlan = 30
+zona = "perimetro"
+criticidad = "media"
 ```
 
-Validación al arrancar: IPs con `ipaddress`, puertos 1–65535, rutas existentes,
-timeouts > 0, zonas horarias con `zoneinfo`, y al menos un módulo habilitado.
+Validación al arrancar: IPs con `ipaddress`, puertos 1–65535, rutas y directorios
+existentes, timeouts > 0, zona horaria válida y al menos un módulo habilitado.
 
 ---
 
-## 9. Flujo de ejecución
+## 10. Flujo de ejecución y programación
 
 ```
 1. parsear CLI y cargar TOML + inventario
 2. validar configuración (fallo ⇒ exit 2)
 3. adquirir lock (si está ocupado ⇒ exit 0 con aviso)
-4. crear registro de corrida (run_id, inicio, host)
-5. construir lista de sondas habilitadas × objetivos
+4. crear run_id e inicio de corrida
+5. construir sondas habilitadas × objetivos
 6. ejecutar en ThreadPoolExecutor; cada sonda aplica timeout y reintentos
-7. recolectar Resultado; excepción ⇒ ERROR con detalle, sin abortar
-8. escribir data/raw/YYYY-MM-DD/<run_id>.jsonl (fsync)
-9. ingestar en SQLite (INSERT OR IGNORE por huella)
-10. si --exportar: regenerar CSV diario/semanal desde SQLite
-11. imprimir resumen (OK/parcial), cerrar corrida y liberar lock
-12. exit 0 si todo OK; 1 si hubo fallos/degradación; 3 si fallo fatal
+7. excepción ⇒ ERROR con detalle, sin abortar el resto
+8. escribir JSONL de la corrida (fsync)
+9. si --exportar: reconstruir data/csv/metricas_YYYY-MM-DD.csv
+10. imprimir resumen, cerrar corrida y liberar lock
+11. exit 0 si todo OK; 1 si hubo fallos/degradación; 3 si fallo fatal
 ```
 
-Pseudocódigo del núcleo:
+**Programación diaria a las 23:00.** Cron (zona horaria de la VM en
+`America/Bogota`) o `systemd` timer:
 
-```python
-with bloqueo(ruta_lock):
-    run_id = uuid.uuid4().hex
-    resultados = []
-    with ThreadPoolExecutor(max_workers=cfg.max_workers) as pool:
-        futuros = {pool.submit(ejecutar, objetivo, cfg): objetivo
-                   for objetivo in objetivos(cfg, args)}
-        for futuro in as_completed(futuros):
-            objetivo = futuros[futuro]
-            try:
-                resultados.append(futuro.result())
-            except Exception as exc:
-                resultados.append(resultado_error(objetivo, exc))
-    escribir_jsonl(run_id, resultados)
-    ingestar_sqlite(run_id, resultados)
-    if args.exportar:
-        exportar_csv(desde=args.desde, hasta=args.hasta)
-    return 0 if resumen.todo_ok else 1
+```cron
+# /etc/cron.d/portocaribe-monitor
+CRON_TZ=America/Bogota
+0 23 * * * monitor cd /opt/portocaribe-monitor && /usr/bin/python3 -m monitor run --exportar >> data/logs/cron.log 2>&1
 ```
+
+```ini
+# programacion/portocaribe-monitor.timer
+[Unit]
+Description=Monitor PortoCaribe diario
+
+[Timer]
+OnCalendar=*-*-* 23:00:00 America/Bogota
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+> **Sobre una sola muestra diaria.** Con una corrida a las 23:00, cada recurso aporta
+> **una fila por día**: la “disponibilidad” que se calcule en Power BI será un
+> **indicador puntual** (100 % o 0 % por día), no un porcentaje de uptime. Si el
+> informe necesita disponibilidad real, basta cambiar el cron a cada 5–15 minutos y
+> exportar una vez al día; el CSV acumula las muestras y Power BI calcula el %. El
+> script soporta ambos escenarios sin cambios: la frecuencia es solo programación.
 
 Subcomandos:
 
 | Comando | Efecto |
 |---|---|
-| `run` | Ejecuta sondas, escribe JSONL, ingesta y (opcional) exporta |
-| `export` | Regenera CSV/JSONL desde SQLite con filtros de fecha/módulo |
-| `report` | Genera `resumen_diario.csv`, `incidentes.csv` y p95 por recurso |
-| `prune` | Borra JSONL y filas anteriores a `retencion_dias` |
+| `run` | Ejecuta sondas, escribe JSONL y, con `--exportar`, el CSV del día |
+| `export` | Reconstruye el CSV de una fecha desde sus JSONL |
+| `prune` | Borra JSONL/CSV anteriores a `retencion_dias` |
 | `validate` | Solo valida configuración e inventario |
 
-Opciones transversales: `--config`, `--solo`, `--dry-run`, `--simulate`,
-`--exportar`, `--verbose`, `--json-logs`.
+Opciones: `--config`, `--solo`, `--dry-run`, `--simulate`, `--exportar`,
+`--verbose`, `--json-logs`.
 
 ---
 
-## 10. Robustez y operación
+## 11. Robustez y operación
 
-- **Timeouts:** por sonda (5 s por defecto, 15 s HTTP, 20 s iperf3) y total por corrida.
-- **Reintentos:** solo ante timeout/error transitorio, 2 intentos con backoff
-  exponencial (0.5 s, 1 s) y jitter; una conexión rechazada no se reintenta 5 veces.
-- **Instancia única:** `flock` no bloqueante sobre `data/.lock`; si otra corrida está
-  activa se omite y se registra.
-- **Señales:** SIGTERM/SIGINT activan un `threading.Event`; se deja de lanzar sondas,
-  se escribe lo recolectado y se sale con código 1.
-- **Reloj:** `timedatectl show -p NTPSynchronized` (o `adjtimex` vía `/proc`) y aviso si
-  no está sincronizado; sin reloj confiable el histórico de Power BI se distorsiona.
-- **Disco:** verificar espacio libre antes de capturas pcap; borrar temporales en `finally`.
-- **Retención:** `prune` por días y compresión `.gz` de JSONL antiguos.
-- **Logs:** `monitor.log` rotativo; una línea por sonda con duración y resultado.
+- **Timeouts:** 5 s por sonda, 15 s HTTP, 20 s iperf3; además un límite total de corrida.
+- **Reintentos:** solo ante timeout/error transitorio; 2 intentos con backoff
+  exponencial (0.5 s, 1 s) y jitter.
+- **Instancia única:** `flock` no bloqueante sobre `data/.lock`.
+- **Señales:** SIGTERM/SIGINT activan un `threading.Event`; se escribe lo recolectado
+  y se sale con código 1.
+- **Reloj:** `timedatectl show -p NTPSynchronized` y aviso si no está sincronizado;
+  un reloj desfasado distorsiona el histórico.
+- **Retención:** `prune` por días; compresión `.gz` de JSONL antiguos.
+- **Logs:** `monitor.log` rotativo; una línea por sonda con duración y resultado, sin
+  credenciales ni cuerpos de respuesta.
 - **Códigos de salida:** 0 todo OK, 1 parcial/degradado, 2 configuración inválida, 3 fatal.
 
 ---
 
-## 11. Pruebas y criterios de aceptación
+## 12. Pruebas y criterios de aceptación
 
 | Nivel | Qué se prueba | Cómo (sin red) |
 |---|---|---|
 | Unitario | Parsers de `ping`, iperf3, CDR, fail2ban, auth.log, iptables, pcap | Fixtures en `tests/fixtures/` |
-| Unitario | Normalización, huella, enums, validación TOML | `unittest` |
-| Integración | Sonda TCP/HTTP | `socket` local y `http.server.ThreadingHTTPServer` en `127.0.0.1:0` |
-| Integración | ETL idempotente (reingesta no duplica) | SQLite temporal |
-| Extremo a extremo | `run --simulate` produce CSV válido | `tmp_path` + `subprocess` |
+| Unitario | Normalización, huellas, enums, validación TOML | `unittest` |
+| Integración | Sondas TCP/HTTP | `socket` local y `http.server.ThreadingHTTPServer` en `127.0.0.1:0` |
+| Integración | Export idempotente | JSONL temporales + doble `export` |
+| Extremo a extremo | `run --simulate` | `tmp_path` + `subprocess` |
 | Manual | Topología real, VLANs y servicios | Lista de verificación del laboratorio |
 
 **Definición de terminado (v1)**
 
-1. `python -m monitor run --simulate` genera CSV con al menos una fila por módulo y
-   columnas exactas del esquema v1.
-2. En topología real, una corrida con 20 objetivos termina en < 30 s y escribe resumen.
+1. `python -m monitor run --simulate` genera JSONL válido y un CSV con las columnas
+   exactas del esquema v1 y al menos una fila por módulo habilitado.
+2. `export --fecha` dos veces produce el mismo CSV byte a byte (mismo SHA-256).
 3. Un objetivo inexistente produce `OFFLINE`/`ERROR`, no una traza.
 4. `python -m unittest discover -s tests` pasa sin acceso a red.
-5. `grep -RhE "^(from|import) " monitor/` solo muestra stdlib (más `psycopg` opcional).
-6. Reingestar el mismo JSONL no duplica filas en SQLite.
-7. README con configuración, cron/systemd, interpretación de columnas y límites.
+5. `grep -RhE "^(from|import) " monitor/` solo muestra stdlib.
+6. Una corrida con 20 objetivos de red termina en < 15 s (sin QoS).
+7. El timer/cron de las 23:00 deja CSV, JSONL y log del día.
+8. README con configuración, programación, columnas y límites.
 
 ---
 
-## 12. Plan por fases
+## 13. Plan por fases
 
 | Fase | Entregable | Horas | Criterio de cierre |
 |---|---|---|---|
-| **F0. Relevamiento** | Inventario real (IPs, VLANs, servicios, rutas), esquema v1 congelado | 1 | Inventario validado con el documento y la topología |
-| **F1. Esqueleto** | Paquete, config TOML, modelos, logging, lock, writer JSONL, CLI, 5 tests | 3 | `validate` y `run --dry-run` funcionan |
+| **F0. Relevamiento** | Inventario real (IPs, VLANs, rutas) y decisión de fuentes locales | 1 | Inventario validado y §8 resuelto |
+| **F1. Esqueleto** | Paquete, config TOML, modelos, logging, lock, writers, CLI, 5 tests | 3 | `validate` y `run --dry-run` funcionan |
 | **F2. Sondas núcleo** | ICMP, TCP, RTSP, HTTP/TLS, concurrencia y reintentos | 4 | Cámaras y portal reales en CSV |
-| **F3. Servicios** | PostgreSQL, SIP, DNS, Asterisk/CDR | 3 | Filas con `sip_code`, `duracion_llamada_s`, `llamadas_activas` |
-| **F4. QoS** | iperf3 `-J` y parser pcap/DSCP | 4 | Pérdida, jitter y DSCP en el dataset |
-| **F5. Seguridad** | Parseo de iptables/journal, fail2ban, SSH y contadores | 4 | Eventos con IP origen/destino y delta de contadores |
-| **F6. Persistencia** | SQLite, huella, export CSV/JSONL, reporte diario, `prune` | 3 | Export idempotente y vistas de disponibilidad |
-| **F7. Calidad** | Fixtures completos, `--simulate`, inyección de fallos | 3 | Suite verde y corrida simulada reproducible |
-| **F8. Operación** | `systemd` unit/timer, README, runbook y evidencias | 2 | Timer activo y documentación entregada |
+| **F3. Export** | JSONL, reconstrucción CSV, `prune`, escritura atómica | 2 | Export idempotente y CSV válido |
+| **F4. Servicios** | PostgreSQL, SIP, AMI/CDR, DNS | 3 | Filas con `sip_code`, `llamadas_activas` |
+| **F5. Seguridad** | iptables/journal, fail2ban, SSH, contadores | 3 | Eventos con IP origen/destino |
+| **F6. QoS** | iperf3 `-J` y parser pcap/DSCP | 3 | Pérdida, jitter y DSCP en el dataset |
+| **F7. Calidad** | Fixtures completos, `--simulate`, fallos inyectados | 2 | Suite verde y simulación reproducible |
+| **F8. Operación** | `systemd`/cron, README, runbook y evidencias | 2 | Timer de las 23:00 activo |
 
-**Total estimado: ~27 h.** Ruta mínima para demo (F0–F2 + `--simulate` + CSV): ~10 h.
+**Total estimado: ~23 h.** Ruta mínima demostrable (F0–F3 + `--simulate`): ~10 h.
 
-**Sugerencia de orden:** F0 → F1 → F2 → F6 (para tener CSV cuanto antes) → F3 → F5 →
-F4 → F7 → F8. QoS al final porque es la única que altera el tráfico del laboratorio.
+Orden sugerido: F0 → F1 → F2 → F3 → F4 → F5 → F7 → F8 → F6. QoS al final porque es
+la única sonda que altera el tráfico del laboratorio.
 
 ---
 
-## 13. Estructura de archivos propuesta
+## 14. Estructura de archivos propuesta
 
 ```
 pa/
@@ -531,6 +567,7 @@ pa/
 │   ├── modelos.py
 │   ├── runner.py
 │   ├── writers.py
+│   ├── exportacion.py
 │   ├── bloqueo.py
 │   ├── sondas/
 │   │   ├── __init__.py        # registro y metadatos (requiere, módulo)
@@ -539,15 +576,11 @@ pa/
 │   │   ├── http.py
 │   │   ├── postgres.py
 │   │   ├── sip.py
-│   │   ├── asterisk.py
+│   │   ├── asterisk.py        # AMI + CDR
 │   │   ├── iperf.py
 │   │   ├── pcap.py
 │   │   ├── seguridad.py
 │   │   └── sistema.py
-│   ├── etl/
-│   │   ├── sqlite.py
-│   │   ├── export.py
-│   │   └── reporte.py
 │   └── utils/
 │       ├── tiempo.py
 │       ├── red.py
@@ -555,56 +588,60 @@ pa/
 ├── config/
 │   ├── monitor.ejemplo.toml
 │   └── inventario.ejemplo.csv
-├── sql/
-│   ├── schema_sqlite.sql
-│   └── schema_postgres.sql
+├── programacion/
+│   ├── portocaribe-monitor.service
+│   ├── portocaribe-monitor.timer
+│   └── cron.ejemplo
 ├── tests/
 │   ├── fixtures/
 │   └── test_*.py
 ├── data/                      # generado, ignorado por git
-├── pyproject.toml             # sin dependencias obligatorias
+├── pyproject.toml             # dependencies = []
 └── README.md
 ```
 
-`pyproject.toml` declara `requires-python = ">=3.11"` y
-`dependencies = []`; `psycopg[binary]` va en `[project.optional-dependencies].pg`.
+`pyproject.toml` declara `requires-python = ">=3.11"` y `dependencies = []`.
 
 ---
 
-## 14. Riesgos y mitigaciones
+## 15. Riesgos y mitigaciones
 
 | Riesgo | Impacto | Mitigación |
 |---|---|---|
-| Parseo de `ping` dependiente del idioma | Pérdida de latencias | `LC_ALL=C` y fixtures en inglés/español |
-| ICMP/tcpdump requieren privilegios | Sonda no ejecuta | `setcap cap_net_raw+ep` o corrida como servicio; degradar a TCP |
-| `iperf3`/`tshark` ausentes | Sin métricas QoS | Adaptador `SKIPPED`, columnas nulas, alternativa pcap+`tcpdump` |
-| Formatos de log variables | Eventos de seguridad vacíos | Prefijos fijos en `iptables`, regex en configuración, fixtures |
-| Reloj desincronizado | Series temporales inconsistentes | Verificación NTP y advertencia en el resumen |
-| Solapamiento de corridas | Filas duplicadas/archivos corruptos | `flock` + huella única en SQLite |
-| Credenciales de PostgreSQL | Exposición | `PGPASSFILE` 600, sin secretos en TOML ni en argumentos |
-| CSV abierto en Excel durante el export | Escritura fallida | Export a archivo nuevo con marca de tiempo; reintento y aviso |
-| Volumen de datos | Crecimiento del disco | Retención 90 días, compresión y tabla de agregados |
-| Demo sin topología | No hay evidencia | `--simulate` determinista (semilla fija) y modo `--dry-run` |
+| Una sola muestra diaria | Disponibilidad puntual, no % real | Documentarlo; si se requiere %, subir la frecuencia del cron |
+| Fuentes locales inaccesibles | Sin CDR, fail2ban ni contadores | Export compartido, AMI o simulación etiquetada (`fuente`) |
+| Parseo de `ping` por idioma | Pérdida de latencias | `LC_ALL=C` y fixtures en inglés/español |
+| ICMP/`tcpdump` requieren privilegios | Sonda no ejecuta | `setcap cap_net_raw+ep` o servicio con permisos; degradar |
+| `iperf3`/`tcpdump` ausentes | Sin métricas QoS | Adaptador `SKIPPED`, columnas nulas |
+| Formatos de log variables | Eventos vacíos | Prefijos fijos en `iptables`, regex configurable, fixtures |
+| Reloj o zona horaria mal | Fechas inconsistentes | Verificación NTP y `timedatectl` en el resumen |
+| CSV abierto en Excel | Escritura fallida | Temporal + `os.replace`; reintento y aviso |
+| Credenciales | Exposición | Variables de entorno / `PGPASSFILE` 600; nunca en TOML |
+| Topología caída | Sin evidencia | `--simulate` determinista y `--dry-run` |
 
 **Nota de alcance:** el script solo debe apuntar a activos del laboratorio y de la
-topología del proyecto; no se debe ejecutar contra redes de terceros.
+topología del proyecto; no se ejecuta contra redes de terceros.
 
 ---
 
-## 15. Decisiones pendientes
+## 16. Decisiones y pendientes
 
-1. ¿El script correrá dentro de una VM de la topología (con acceso a VLAN 30/50/60) o
-   desde el host? ¿Tendrá privilegios para ICMP crudo y `tcpdump`?
-2. ¿La entrega final debe cargar en PostgreSQL o basta CSV/JSONL? Si es PostgreSQL,
-   ¿se autoriza `psycopg` como única dependencia opcional?
-3. ¿Los servicios de Asterisk, fail2ban y DHCP ya existen en el escenario o se simulan
-   con archivos de ejemplo?
-4. ¿Frecuencia y ventana de recolección para el informe (p. ej. cada 5 min durante 7 días)?
-5. ¿Se requiere que el script genere también los gráficos/medidas de Power BI o solo el
-   dataset y la documentación de medidas?
+**Confirmadas**
 
-## 16. Siguiente paso
+- VM de monitoreo dentro de la topología.
+- Entrega en CSV + JSONL, sin PostgreSQL como destino.
+- Una corrida diaria a las 23:00 (America/Bogota).
+- Solo dataset; medidas y gráficos los elabora otra persona.
 
-Cerrar F0 con el inventario real y luego implementar F1 (esqueleto + configuración +
-writer JSONL + `--dry-run`). Con eso se valida el contrato de datos antes de escribir
-cualquier sonda.
+**Pendiente**
+
+- ¿Asterisk, fail2ban y DHCP son servicios reales en VMs de la topología, o se
+  representan con archivos de ejemplo? De esto depende si §8 usa AMI/export o
+  simulación. Mientras se define, F0 los deja configurados como `modo = "archivo"` y
+  el resto del script no cambia.
+
+## 17. Siguiente paso
+
+Cerrar F0 (inventario + decisión de fuentes) e implementar F1–F3: esqueleto, sondas
+ICMP/TCP/HTTP y export CSV/JSONL, con `--simulate` para tener el dataset demostrable
+antes de tocar los servicios locales.
