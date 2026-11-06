@@ -1,0 +1,10 @@
+[Unit]
+Description=Monitor PortoCaribe (cierre diario a las 23:59)
+
+[Timer]
+OnCalendar=*-*-* 23:59:00 America/Bogota
+Persistent=true
+Unit=portocaribe-export.service
+
+[Install]
+WantedBy=timers.target

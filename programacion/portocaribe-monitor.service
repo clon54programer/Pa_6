@@ -1,0 +1,9 @@
+[Unit]
+Description=Monitor PortoCaribe (muestreo)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=monitor
+WorkingDirectory=/opt/portocaribe-monitor
+ExecStart=/usr/bin/python3 -m monitor run --config /etc/monitor/monitor.toml

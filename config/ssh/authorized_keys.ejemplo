@@ -1,0 +1,1 @@
+from="<IP_VM_MONITOR>",restrict,command="/usr/local/bin/monitor-readonly" ssh-ed25519 AAAA... monitor@monitor-vm

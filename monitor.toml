@@ -1,0 +1,103 @@
+[general]
+zona_horaria = "America/Bogota"
+timeout_s = 5
+timeout_total_s = 120
+reintentos = 2
+max_workers = 12
+directorio_datos = "data"
+retencion_dias = 180
+intervalo_s = 300
+frescura_max_s = 900
+version_esquema = 1
+
+[recoleccion]
+habilitado = false
+usuario = "monitor"
+clave = "/etc/monitor/id_ed25519"
+known_hosts = "/etc/monitor/known_hosts"
+timeout_s = 15
+recolectar_antes = true
+
+[recoleccion.vm1]
+host = "10.30.60.10"
+
+[recoleccion.vm2]
+host = "10.30.50.5"
+
+[salida]
+csv = true
+jsonl = true
+codificacion = "utf-8-sig"
+
+[camaras]
+habilitado = true
+ping_paquetes = 4
+rtsp_puerto = 554
+
+[portal]
+habilitado = true
+url = "https://10.30.50.5/"
+timeout_s = 15
+umbral_degradado_s = 10.0
+verificar_tls = false
+estado_apache = "data/entradas/vm2/apache.txt"
+
+[base_datos]
+habilitado = true
+host = "10.30.50.5"
+puerto = 5432
+base = "portocaribe"
+usuario = "monitor"
+pgpassfile = "/etc/monitor/pgpass"
+
+[voip]
+habilitado = true
+host = "10.30.60.10"
+sip_puerto = 5060
+ami = true
+ami_puerto = 5038
+ami_usuario = "monitor"
+ami_secreto_env = "ASTERISK_AMI_SECRET"
+cdr = "data/entradas/vm1/cdr.csv"
+
+[qos]
+habilitado = false
+servidor_iperf = "10.30.50.20"
+duracion_s = 10
+ancho_banda = "20M"
+interfaz = "eth1"
+
+[seguridad]
+habilitado = true
+modo = "archivo"
+entradas = "data/entradas/vm2"
+iptables_save = "data/entradas/vm2/iptables.save"
+fail2ban_estado = "data/entradas/vm2/fail2ban.txt"
+fail2ban_log = "data/entradas/vm2/fail2ban.log"
+auth_log = "data/entradas/vm2/auth.log"
+kern_log = "data/entradas/vm2/kern.log"
+netstat = "data/entradas/vm2/netstat.txt"
+snmp = "data/entradas/vm2/snmp.txt"
+prefijos_iptables = ["VLAN30-DROP:", "VLAN40-DROP:"]
+jail = "sshd"
+
+[dhcp]
+habilitado = true
+modo = "archivo"
+entradas = "data/entradas/vm2"
+leases = "data/entradas/vm2/dhcpd.leases"
+estado = "data/entradas/vm2/dhcp_estado.txt"
+
+[[camaras.lista]]
+ip = "10.30.30.12"
+nombre = "Cam_Muelle_1"
+vlan = 30
+zona = "muelles"
+criticidad = "alta"
+
+[[camaras.lista]]
+ip = "10.30.30.13"
+nombre = "Cam_Perimetro_1"
+vlan = 30
+zona = "perimetro"
+criticidad = "media"

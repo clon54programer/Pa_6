@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+case "${SSH_ORIGINAL_COMMAND:-}" in
+  cdr)         exec sudo -n cat /var/log/asterisk/cdr-csv/Master.csv ;;
+  apache)      exec sudo -n systemctl is-active apache2 ;;
+  iptables)    exec sudo -n /usr/sbin/iptables-save -c ;;
+  fail2ban)    exec sudo -n /usr/bin/fail2ban-client status sshd ;;
+  fail2banlog) exec sudo -n tail -n 5000 /var/log/fail2ban.log ;;
+  auth)        exec sudo -n /usr/bin/journalctl -u ssh -n 5000 -o short-iso --no-pager ;;
+  kern)        exec sudo -n /usr/bin/journalctl -k -n 5000 -o short-iso --no-pager ;;
+  netstat)     exec cat /proc/net/netstat ;;
+  snmp)        exec cat /proc/net/snmp ;;
+  dhcp_leases) exec sudo -n cat /var/lib/dhcp/dhcpd.leases ;;
+  dhcp_estado) sudo -n systemctl is-active isc-dhcp-server || true
+               sudo -n stat -c %Y /var/lib/dhcp/dhcpd.leases ;;
+  *) echo "receta no permitida" >&2; exit 2 ;;
+esac

@@ -1,0 +1,7 @@
+monitor ALL=(root) NOPASSWD: /usr/bin/cat /var/log/asterisk/cdr-csv/Master.csv, \
+  /usr/bin/systemctl is-active apache2, /usr/bin/systemctl is-active isc-dhcp-server, \
+  /usr/sbin/iptables-save -c, \
+  /usr/bin/fail2ban-client status sshd, /usr/bin/tail -n 5000 /var/log/fail2ban.log, \
+  /usr/bin/journalctl -u ssh -n 5000 -o short-iso --no-pager, \
+  /usr/bin/journalctl -k -n 5000 -o short-iso --no-pager, \
+  /usr/bin/cat /var/lib/dhcp/dhcpd.leases, /usr/bin/stat -c %Y /var/lib/dhcp/dhcpd.leases

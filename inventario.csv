@@ -1,0 +1,6 @@
+recurso,nombre,tipo,vlan,zona,puerto,criticidad,habilitado
+10.30.30.12,Cam_Muelle_1,camara,30,muelles,554,alta,true
+10.30.30.13,Cam_Perimetro_1,camara,30,perimetro,554,media,true
+10.30.50.5,Portal_Clientes,web,50,core,443,alta,true
+10.30.50.5,PostgreSQL,db,50,core,5432,alta,true
+10.30.60.10,Asterisk,sip,60,core,5060,alta,true

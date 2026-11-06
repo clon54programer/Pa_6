@@ -1,0 +1,8 @@
+[Unit]
+Description=Monitor PortoCaribe (cierre diario)
+
+[Service]
+Type=oneshot
+User=monitor
+WorkingDirectory=/opt/portocaribe-monitor
+ExecStart=/usr/bin/python3 -m monitor export --config /etc/monitor/monitor.toml
