@@ -12,8 +12,9 @@ luego puede conectarse al backend definitivo.
 >   servicios; la VM1 queda para Asterisk y el servicio de cámaras.
 > - **Python stdlib + HTML/CSS/JS sin frameworks**; sin CDN ni recursos externos.
 > - Datos de demostración en **SQLite** (no se toca la PostgreSQL real).
+> - **TLS lo termina Apache** en 443; Python escucha solo en `127.0.0.1:8080`.
 > - Login, rate limiting, sesiones y cabeceras de seguridad implementados en el servidor.
-> - El widget de rendimiento puede leer el CSV del monitor o medir el propio servidor.
+> - El widget mide el propio servidor; leer el CSV del monitor es opcional (requiere copiarlo).
 
 ---
 
@@ -48,7 +49,8 @@ luego puede conectarse al backend definitivo.
 
 **Supuestos**
 
-1. VM2 con Python 3.12, Apache/PostgreSQL ya existentes; el demo no los modifica.
+1. VM2 con Python 3.12, Apache/PostgreSQL ya existentes; el demo agrega un VirtualHost
+   en Apache y no toca la base PostgreSQL.
 2. Navegador moderno (Chrome/Firefox/Edge) con JavaScript habilitado.
 3. La VM2 tiene IP fija en la VLAN de servicios (`10.30.50.5` en el plan del monitor).
 4. El monitor puede apuntar su sonda `PortalWeb` a esta landing.
@@ -78,7 +80,10 @@ luego puede conectarse al backend definitivo.
 
 ```
 Navegador (HTML/CSS/JS)
-        │  HTTPS 8443 (o 443 vía Apache)
+        │  HTTPS 443 (TLS en Apache)
+        ▼
+ Apache 2.4  ──ProxyPass──►  127.0.0.1:8080
+        │
         ▼
  portal/app.py  (ThreadingHTTPServer + router)
    ├── /               → web/ (HTML, CSS, JS, SVG)
@@ -97,7 +102,7 @@ Navegador (HTML/CSS/JS)
 
 | Capa | Responsabilidad | Archivos |
 |---|---|---|
-| Servidor | Socket, TLS, router, errores, estáticos | `app.py`, `servidor.py` |
+| Servidor | Socket HTTP, router, errores, estáticos | `app.py`, `servidor.py` |
 | Seguridad | Contraseñas, sesiones, CSRF, rate limit, cabeceras | `auth.py`, `seguridad.py` |
 | Datos | Esquema, semilla, consultas | `datos.py` |
 | API | Serialización y códigos HTTP | `api.py` |
@@ -114,7 +119,7 @@ correcto en cada respuesta, timeout de socket y límite de cuerpo (16 KB).
 | Necesidad | Módulo | Uso |
 |---|---|---|
 | Servidor HTTP | `http.server`, `socketserver` | `ThreadingHTTPServer`, `BaseHTTPRequestHandler` |
-| TLS | `ssl` | `SSLContext(PROTOCOL_TLS_SERVER)`, mínimo TLS 1.2 |
+| TLS | `ssl` (opcional) | Lo termina Apache; `ssl` solo para el modo directo de desarrollo |
 | Router | — | tabla de rutas y métodos en `app.py` |
 | JSON | `json` | API, configuración de respuestas |
 | SQLite | `sqlite3` | Datos de demo, intentos de login, WAL |
@@ -130,8 +135,8 @@ correcto en cada respuesta, timeout de socket y límite de cuerpo (16 KB).
 | Pruebas | `unittest`, `http.client`, `unittest.mock` | Integración con servidor efímero |
 | Apagado | `signal` | Cierre ordenado del servidor |
 
-**Dependencias de terceros: ninguna.** El certificado se genera con `openssl` del
-sistema (no es una dependencia de Python) y solo para el laboratorio.
+**Dependencias de terceros: ninguna.** TLS lo termina Apache; el certificado se genera
+con `openssl` del sistema (no es una dependencia de Python) y solo para el laboratorio.
 
 ---
 
@@ -177,7 +182,7 @@ sistema (no es una dependencia de Python) y solo para el laboratorio.
 | Cabecera | Valor |
 |---|---|
 | `Content-Security-Policy` | `default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'` |
-| `Strict-Transport-Security` | `max-age=15552000` (solo HTTPS) |
+| `Strict-Transport-Security` | `max-age=15552000` (lo agrega Apache, solo HTTPS) |
 | `X-Content-Type-Options` | `nosniff` |
 | `Referrer-Policy` | `no-referrer` |
 | `X-Frame-Options` | `DENY` |
@@ -296,14 +301,19 @@ la API.
 
 ### 7.1 Origen del indicador de rendimiento
 
-1. **Monitor (preferido):** leer el CSV más reciente de
+1. **Servidor (por defecto):** medir una consulta de prueba a SQLite (`SELECT 1`) o la
+   última duración registrada de `/api/track`, con `perf_counter`; la interfaz además
+   cronometra la petición en el navegador con `performance.now` y muestra ambos valores
+   (“navegador” y “servidor”).
+2. **Monitor (opcional):** si el CSV se copió a VM2, leer el más reciente de
    `metricas_*.csv`, filtrar `modulo == "PortalWeb"` y `fuente == "http"`, y tomar la
    última fila por `timestamp`; devolver `latencia_ms`, `http_status` y `timestamp`.
-2. **Servidor:** si no hay CSV, medir una consulta de prueba a SQLite (`SELECT 1`) o
-   la última duración registrada de `/api/track`, con `perf_counter`, y reportar esa
-   latencia.
-3. **Simulado:** si no hay CSV ni medición disponible, usar un valor determinista
-   (semilla fija) entre 250 y 800 ms, con `fuente = "simulado"`.
+3. **Simulado:** si no hay medición disponible, usar un valor determinista (semilla
+   fija) entre 250 y 800 ms, con `fuente = "simulado"`.
+
+Copiar el CSV del monitor a VM2 no es obligatorio: el monitor ya mide el portal y su CSV
+es la evidencia del informe. Para el widget, la opción simple es medir la propia
+petición; la opción externa requiere un `scp` diario (o cada hora) desde el monitor.
 
 La interfaz muestra siempre la fuente y la hora; nunca se rotula como “real” un dato
 simulado. Si el CSV existe pero está viejo (> 15 min), se devuelve
@@ -340,7 +350,7 @@ no se hace pasar por actual.
 |---|---|
 | Branding corporativo | Logo SVG inline, paleta azul marino/teal, tipografía del sistema |
 | Formulario de login | Tarjeta con etiquetas, `autocomplete`, mostrar/ocultar contraseña |
-| TLS visible | Badge “🔒 HTTPS” solo si `request.scheme == https`; tooltip con TLS 1.2+ |
+| TLS visible | Badge “🔒 HTTPS” solo si el proxy envía `X-Forwarded-Proto: https`; tooltip con TLS 1.2+ |
 | Límite de intentos visible | Aviso “5 intentos / 10 min”, contador restante y cuenta regresiva al bloquear |
 | Búsqueda de contenedores | Input con ejemplos, validación en vivo, botón y `Enter` |
 | Indicador de rendimiento | Punto verde/ámbar/rojo, latencia, fuente y última actualización |
@@ -427,11 +437,9 @@ pa/
 
 ```toml
 [servidor]
-host = "0.0.0.0"
-puerto = 8443
-certificado = "certs/portal.crt"
-clave = "certs/portal.key"
-confiar_proxy = false
+host = "127.0.0.1"          # solo accesible desde Apache
+puerto = 8080
+confiar_proxy = true        # Apache está en 127.0.0.1
 cuerpo_maximo_bytes = 16384
 
 [portal]
@@ -448,27 +456,35 @@ bloqueo_s = 120
 intentos_maximos_ip = 20
 
 [monitor]
-csv_dir = "/srv/monitor/metricas"          # opcional: exportar data/csv del monitor
+csv_dir = "/var/lib/portal/metricas"       # opcional: copia del CSV del monitor
 recurso_portal = "10.30.50.5"
 frescura_max_s = 900
 umbral_degradado_ms = 10000
 ```
 
-- Certificado de laboratorio:
-  ```bash
-  openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
-    -keyout certs/portal.key -out certs/portal.crt \
-    -subj "/CN=portal.portocaribe.local" \
-    -addext "subjectAltName=DNS:portal.portocaribe.local,DNS:localhost,IP:10.30.50.5"
+- Apache 2.4 termina TLS y hace proxy al backend:
+
+  ```apache
+  <VirtualHost *:443>
+      ServerName portal.portocaribe.local
+      SSLEngine on
+      SSLCertificateFile    /etc/apache2/ssl/portal.crt
+      SSLCertificateKeyFile /etc/apache2/ssl/portal.key
+      ProxyPass        / http://127.0.0.1:8080/
+      ProxyPassReverse / http://127.0.0.1:8080/
+      RequestHeader set X-Forwarded-Proto "https"
+      Header always set Strict-Transport-Security "max-age=15552000"
+  </VirtualHost>
   ```
+
+- Certificado autofirmado para el laboratorio (o el del portal real); se instala en
+  Apache, no en Python.
 - Arranque: `python3 -m portal --config portal.toml` (o `--check` para validar
-  configuración, certificado y base).
+  configuración, base y permisos).
 - `systemd` con usuario `portal`, `ProtectSystem=strict`, `ReadWritePaths=/var/lib/portal`;
-  puerto 8443 (> 1024) para no requerir _root_.
-- Alternativa con Apache (más cercana al portal real): TLS en Apache y
-  `ProxyPass / http://127.0.0.1:8080/`; en ese caso `confiar_proxy = true` y el
-  servidor Python escucha solo en `127.0.0.1`.
-- Firewall: abrir 8443/tcp (o 443/tcp si se usa Apache).
+  el backend escucha en `127.0.0.1:8080` y no requiere _root_.
+- Firewall: abrir **443/tcp** (Apache); el 8080 no se expone.
+- Modo directo opcional con `--tls` y certificado propio, solo para desarrollo.
 
 ---
 
@@ -491,20 +507,21 @@ umbral_degradado_ms = 10000
 
 **Definición de terminado (v1)**
 
-1. `python3 -m portal --check` valida configuración, certificado y base sin errores.
+1. `python3 -m portal --check` valida configuración, base y permisos sin errores.
 2. Login demo funciona; 5 fallos producen `429` con cuenta regresiva; la contraseña
    correcta durante el bloqueo también se rechaza.
 3. Un contenedor válido devuelve estado, detalles y timeline; uno inválido, un `404`
    amable; BL y orden también funcionan.
 4. El widget muestra latencia < 1 s con la fuente (`monitor`/`monitor-obsoleto`/
    `servidor`/`simulado`) y la hora.
-5. `curl -k -I https://localhost:8443/` muestra CSP, HSTS, `nosniff` y `no-referrer`.
+5. `curl -k -I https://portal.portocaribe.local/` (Apache) muestra CSP, HSTS,
+   `nosniff` y `no-referrer`; el backend solo responde en `127.0.0.1:8080`.
 6. La cookie de sesión es `HttpOnly; Secure; SameSite=Strict` y el CSRF se exige.
 7. La interfaz responde a 360, 768 y 1280 px; navegable con teclado; sin recursos
    externos.
 8. `python3 -m unittest discover -s tests` pasa sin red.
 9. `grep -RhE "^(from|import) " portal/` solo muestra stdlib.
-10. README con credenciales demo, generación de certificado, despliegue y límites.
+10. README con credenciales demo, VirtualHost de Apache, despliegue y límites.
 
 ---
 
@@ -513,13 +530,13 @@ umbral_degradado_ms = 10000
 | Fase | Entregable | Horas | Criterio de cierre |
 |---|---|---|---|
 | **L0. Contenido y datos** | Copy en español, paleta, 8 contenedores, avisos, criterios | 2 | Datos y textos aprobados |
-| **L1. Servidor y shell** | `ThreadingHTTPServer`, TLS, estáticos, router, cabeceras, `--check` | 3 | `https://localhost:8443` sirve la página |
+| **L1. Servidor y shell** | `ThreadingHTTPServer`, proxy, estáticos, router, cabeceras, `--check` | 3 | `http://127.0.0.1:8080` sirve la página |
 | **L2. Autenticación** | scrypt, sesiones, CSRF, rate limit y UI de bloqueo | 4 | Login y `429` funcionando |
 | **L3. Datos y tracking** | SQLite, semilla, búsqueda, timeline, API | 4 | Consultas por número/BL/orden |
 | **L4. Interfaz** | Login, resultados, timeline, avisos, soporte, responsive | 5 | Flujo completo en navegador |
 | **L5. Rendimiento** | Widget, lectura del CSV, modos y etiquetas | 2 | Latencia visible y atribuida |
 | **L6. Calidad** | Pruebas, accesibilidad, errores, revisión de seguridad | 3 | Suite verde y checklist |
-| **L7. Despliegue** | `systemd`, certificado, README, guion de demo | 2 | Servicio activo en VM2 |
+| **L7. Despliegue** | Apache/TLS, `systemd`, README, guion de demo | 2 | Servicio activo en VM2 |
 
 **Total estimado: ~25 h.** Ruta mínima demostrable (L0–L4 + semilla de datos):
 ~18 h; el resto endurece y despliega.
@@ -532,7 +549,7 @@ Orden sugerido: L0 → L1 → L2 → L3 → L4 → L5 → L6 → L7.
 
 | Riesgo | Impacto | Mitigación |
 |---|---|---|
-| Certificado autofirmado | Aviso del navegador en la demo | Documentarlo; opción de CA local o TLS en Apache |
+| Certificado autofirmado en Apache | Aviso del navegador en la demo | Documentarlo; opción de CA local o certificado del portal |
 | Credenciales demo en el repo | Mala imagen si se publica | Banner demo, cambio por entorno, nunca usar en producción |
 | Rate limit detrás de proxy | IP falsificada por `X-Forwarded-For` | `confiar_proxy` solo con Apache y cabecera limpiada |
 | SQLite con escrituras concurrentes | `database is locked` | WAL, `timeout`, escritura corta |
@@ -541,7 +558,7 @@ Orden sugerido: L0 → L1 → L2 → L3 → L4 → L5 → L6 → L7.
 | Monitor sin CSV accesible | Widget sin dato real | Fallback medido/simulado etiquetado |
 | JS deshabilitado | Sin búsqueda | `<noscript>` con contacto |
 | Afirmar “< 1 s” sin medir | Demostración engañosa | Medición real por respuesta y registro |
-| Apache y Python compitiendo por el puerto | Servicio caído | 8443 para Python o proxy a 8080 |
+| Apache y Python compitiendo por el puerto | Servicio caído | Python solo en 127.0.0.1:8080; Apache en 443 |
 
 ---
 
@@ -550,19 +567,19 @@ Orden sugerido: L0 → L1 → L2 → L3 → L4 → L5 → L6 → L7.
 **Confirmadas**
 
 - Se despliega en la VM2, con el resto de servicios.
+- TLS lo termina Apache en 443; el backend escucha en 127.0.0.1:8080.
 - Demo con datos simulados; no toca PostgreSQL.
 - stdlib + HTML/CSS/JS, sin frameworks.
+- Empresa ficticia: logo, colores y datos de soporte son placeholders.
 - Login, rate limit y TLS visibles desde la interfaz.
 
 **Pendientes**
 
-- ¿Logo y colores oficiales de PortoCaribe o se usan placeholders?
-- ¿Datos reales de contacto de Liliana Támara o placeholders de demo?
-- ¿TLS lo termina Apache (443) o el propio Python (8443)?
-- ¿El widget debe leer el CSV del monitor o basta con medir el servidor?
+- ¿El widget se queda solo con la medición propia o se copia también el CSV del
+  monitor a VM2 para mostrar la medición externa?
 
 ## 15. Siguiente paso
 
-Cerrar L0 (textos, logo y datos de ejemplo) e implementar L1–L2: servidor HTTPS,
-estáticos, login y rate limiting. Con eso ya se puede mostrar la página y el bloqueo
-de intentos, que es lo que el documento pide demostrar.
+Cerrar L0 (textos y datos de ejemplo) e implementar L1–L2: servidor HTTP detrás de
+Apache, estáticos, login y rate limiting. Con eso ya se puede mostrar la página y el
+bloqueo de intentos, que es lo que el documento pide demostrar.
