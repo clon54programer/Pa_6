@@ -3,7 +3,7 @@
 > **Decisiones confirmadas (2026-11-06)**
 >
 > - **Ejecución:** una VM de monitoreo dentro de la topología.
-> - **Servicios:** Asterisk, fail2ban y DHCP corren en VMs reales.
+> - **Servicios:** dos VMs reales: **VM1** con Asterisk y el servicio de cámaras; **VM2** con el portal (Apache/PostgreSQL), fail2ban, iptables y DHCP.
 > - **Entrega:** CSV + JSONL. PostgreSQL no es destino de carga.
 > - **Muestreo:** cada **5 minutos**; cierre y export del CSV **una vez al día a las 23:59**.
 > - **Alcance:** solo el dataset; las medidas y gráficos de Power BI los elabora otra persona.
@@ -45,8 +45,9 @@ minutos la infraestructura de PortoCaribe y deje:
 
 1. VM Linux con Python 3.12 y `tomllib` (verificado: 3.12.3).
 2. La VM tiene ruta a las VLAN 30/40/50/60; se valida en F0 con `ip route` y `ping`.
-3. Asterisk, fail2ban, iptables y DHCP existen en VMs reales; sus discos no son
-   accesibles desde la VM de monitoreo (ver §8).
+3. Dos VMs de servicio: **VM1** con Asterisk y el servicio de cámaras; **VM2** con el
+   portal (Apache/PostgreSQL), fail2ban, iptables y DHCP. Sus discos no son accesibles
+   desde la VM de monitoreo (ver §8).
 4. `ping` y `psql` existen; `iperf3`, `tcpdump` y `fail2ban-client` pueden faltar.
 5. Zona horaria `America/Bogota` (sin horario de verano); relojes sincronizados por NTP.
 6. Muestreo cada 5 min por cron; export diario a las 23:59.
@@ -92,13 +93,12 @@ minutos la infraestructura de PortoCaribe y deje:
    JSONL por corrida (crudo) ──► CSV del día (23:59, reconstruido)
                 ▲
                 │  /srv/monitor/entradas (NFS, solo lectura para el monitor)
-   ┌────────────┴─────────────┬──────────────────┬─────────────────┐
- VM Asterisk              VM firewall        VM gateway        VM1 portal
- cdr.csv                  iptables.save      dhcpd.leases      apache.txt
-                          fail2ban.*         dhcp_estado.json
-                          auth/kern.log
-                          netstat/snmp
-                          (AMI directo: TCP 5038)
+   ┌────────────┴────────────────────────────┬────────────────────────────────┐
+ VM1: Asterisk + cámaras                  VM2: portal + seguridad + DHCP
+ cdr.csv                                  apache.txt
+ (AMI directo: TCP 5038)                  iptables.save · fail2ban.*
+                                          auth/kern.log · netstat/snmp
+                                          dhcpd.leases · dhcp_estado.json
 ```
 
 **Capas**
@@ -328,15 +328,16 @@ cuando termina; un lector nunca ve una corrida a medias.
 - **SSH:** líneas del log publicado (`Failed password for .* from (\S+)`), con la hora
   del propio log; se deduplican por huella estable.
 - **Inundaciones:** `possible SYN flooding` en el log de kernel, `ListenOverflows`/
-  `ListenDrops` de `/proc/net/netstat` y deltas de `/proc/net/snmp`, publicados desde la
-  VM del firewall.
+  `ListenDrops` de `/proc/net/netstat` y deltas de `/proc/net/snmp`, publicados desde
+  VM2 (donde corren el firewall y fail2ban).
 
 ---
 
 ## 8. Servicios reales: AMI, carpeta compartida y publicadores
 
-Las VMs de Asterisk, firewall, gateway y portal son reales, pero **la VM de monitoreo no
-puede leer sus discos**. Por eso se combinan dos mecanismos:
+Hay **dos VMs de servicio**: VM1 (Asterisk + cámaras) y VM2 (portal, fail2ban, iptables
+y DHCP). Son reales, pero **la VM de monitoreo no puede leer sus discos**. Por eso se
+combinan dos mecanismos:
 
 1. **AMI** para lo que ya se expone por red (llamadas activas de Asterisk).
 2. **Carpeta compartida** para los datos que solo existen en archivos locales (CDR,
@@ -359,30 +360,30 @@ puede leer sus discos**. Por eso se combinan dos mecanismos:
 
 | VM | Perfil | Archivo en `/srv/monitor/entradas` | Origen local |
 |---|---|---|---|
-| Asterisk | `asterisk` | `asterisk/cdr.csv` | `/var/log/asterisk/cdr-csv/Master.csv` |
-| VM1 portal | `portal` | `portal/apache.txt` | `systemctl is-active apache2` |
-| Firewall (o `srv-core`) | `seguridad` | `seguridad/iptables.save` | `iptables-save -c` |
-| Firewall | `seguridad` | `seguridad/fail2ban.txt` | `fail2ban-client status sshd` |
-| Firewall | `seguridad` | `seguridad/fail2ban.log` | `/var/log/fail2ban.log` (cola) |
-| Firewall | `seguridad` | `seguridad/auth.log` | `journalctl -u ssh` (cola) |
-| Firewall | `seguridad` | `seguridad/kern.log` | `journalctl -k` (cola) |
-| Firewall | `seguridad` | `seguridad/netstat.txt` | `/proc/net/netstat` |
-| Firewall | `seguridad` | `seguridad/snmp.txt` | `/proc/net/snmp` |
-| Gateway | `dhcp` | `dhcp/dhcpd.leases` | `/var/lib/dhcp/dhcpd.leases` |
-| Gateway | `dhcp` | `dhcp/estado.json` | `systemctl is-active isc-dhcp-server` + `stat` |
+| VM1 (Asterisk + cámaras) | `asterisk` | `asterisk/cdr.csv` | `/var/log/asterisk/cdr-csv/Master.csv` |
+| VM2 | `portal` | `portal/apache.txt` | `systemctl is-active apache2` |
+| VM2 | `seguridad` | `seguridad/iptables.save` | `iptables-save -c` |
+| VM2 | `seguridad` | `seguridad/fail2ban.txt` | `fail2ban-client status sshd` |
+| VM2 | `seguridad` | `seguridad/fail2ban.log` | `/var/log/fail2ban.log` (cola) |
+| VM2 | `seguridad` | `seguridad/auth.log` | `journalctl -u ssh` (cola) |
+| VM2 | `seguridad` | `seguridad/kern.log` | `journalctl -k` (cola) |
+| VM2 | `seguridad` | `seguridad/netstat.txt` | `/proc/net/netstat` |
+| VM2 | `seguridad` | `seguridad/snmp.txt` | `/proc/net/snmp` |
+| VM2 | `dhcp` | `dhcp/dhcpd.leases` | `/var/lib/dhcp/dhcpd.leases` |
+| VM2 | `dhcp` | `dhcp/estado.json` | `systemctl is-active isc-dhcp-server` + `stat` |
 
 ### 8.3 AMI en Asterisk
 
 - Habilitar en `/etc/asterisk/manager.conf` un usuario de solo lectura para las
   acciones necesarias (`CoreShowChannels`), con `permit` limitado a la IP de la VM de
-  monitoreo:
+  monitoreo (no a la VM2, que es el portal):
 
   ```ini
   [monitor]
   secret = <secreto>
   read = call
   write = call
-  permit = 10.30.50.5/255.255.255.255
+  permit = <IP_VM_MONITOR>/255.255.255.255
   ```
 
 - El secreto se pasa al monitor por variable de entorno (`ASTERISK_AMI_SECRET`), nunca
@@ -670,7 +671,7 @@ Opciones: `--config`, `--solo`, `--dry-run`, `--simulate`, `--verbose`, `--json-
 
 | Fase | Entregable | Horas | Criterio de cierre |
 |---|---|---|---|
-| **F0. Relevamiento** | Inventario, NFS, usuario AMI, VM de seguridad | 2 | Rutas, IPs, NFS y AMI validados |
+| **F0. Relevamiento** | Inventario, NFS, usuario AMI y layout de dos VMs | 2 | Rutas, IPs, NFS y AMI validados |
 | **F1. Esqueleto** | Paquete, config TOML, modelos, logging, lock, writers, CLI, 5 tests | 3 | `validate` y `run --dry-run` funcionan |
 | **F2. Sondas núcleo** | ICMP, TCP, RTSP, HTTP/TLS, concurrencia y reintentos | 4 | Cámaras y portal reales en JSONL |
 | **F3. Export** | JSONL atómico, reconstrucción CSV, `prune` | 2 | Export idempotente y CSV válido |
@@ -770,20 +771,18 @@ topología del proyecto; no se ejecuta contra redes de terceros.
 **Confirmadas**
 
 - VM de monitoreo dentro de la topología.
-- Asterisk, fail2ban y DHCP en VMs reales.
+- Dos VMs de servicio: VM1 con Asterisk y cámaras; VM2 con portal, fail2ban, iptables y DHCP.
 - Muestreo cada 5 minutos; CSV diario a las 23:59.
 - Entrega en CSV + JSONL, sin PostgreSQL como destino.
 - Solo dataset; medidas y gráficos los elabora otra persona.
 
 **Pendiente**
 
-- ¿En qué VM corre `fail2ban` (y `iptables`): en el firewall, en `srv-core` o en otra?
-  El perfil `seguridad` se instala en esa VM.
 - ¿La carpeta compartida por NFS es viable en el laboratorio? Si no, se usa `rsyslog`
   centralizado o SSH puntual (§8.6).
 
 ## 17. Siguiente paso
 
-Cerrar F0 (NFS + usuario AMI + confirmar la VM de seguridad) e implementar F1–F3:
+Cerrar F0 (NFS + usuario AMI + publicadores en VM1/VM2) e implementar F1–F3:
 esqueleto, sondas ICMP/TCP/HTTP y export CSV/JSONL, con `--simulate` para tener el
 dataset demostrable antes de conectar las fuentes reales.
