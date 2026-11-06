@@ -14,7 +14,7 @@ luego puede conectarse al backend definitivo.
 > - Datos de demostración en **SQLite** (no se toca la PostgreSQL real).
 > - **TLS lo termina Apache** en 443; Python escucha solo en `127.0.0.1:8080`.
 > - Login, rate limiting, sesiones y cabeceras de seguridad implementados en el servidor.
-> - El widget mide el propio servidor; leer el CSV del monitor es opcional (requiere copiarlo).
+> - El widget se mide a sí mismo (navegador + servidor); no lee el CSV del monitor.
 
 ---
 
@@ -37,7 +37,7 @@ luego puede conectarse al backend definitivo.
 - Rate limiting visible (5 intentos / 10 min, bloqueo temporal).
 - Búsqueda y timeline sobre datos de demostración.
 - Interfaz responsive y accesible, sin dependencias.
-- Integración opcional de solo lectura con el CSV del monitor.
+- Medición de rendimiento propia (servidor + navegador), sin depender del monitor.
 - Pruebas de unidad e integración con `unittest`.
 
 **Fuera del alcance**
@@ -67,8 +67,8 @@ luego puede conectarse al backend definitivo.
 3. **Seguridad demostrable.** Lo que la interfaz anuncia (TLS, bloqueo de intentos)
    se implementa de verdad en el servidor, no solo en el navegador.
 4. **Separación clara.** HTML/CSS/JS estáticos + API JSON; sin plantillas mezcladas.
-5. **Degradación elegante.** Sin JS se muestra un mensaje claro; si falta el CSV del
-   monitor, el widget mide el servidor y lo indica.
+5. **Degradación elegante.** Sin JS se muestra un mensaje claro; si no hay medición,
+   el widget usa el valor simulado y lo etiqueta.
 6. **Rendimiento como requisito.** Respuesta local < 1 s y API p95 < 100 ms; el
    contraste con los 10 s anteriores es parte de la demostración.
 7. **Accesible por defecto.** Contraste AA, foco visible, etiquetas, `aria-live` y
@@ -92,10 +92,9 @@ Navegador (HTML/CSS/JS)
    ├── /api/logout     → cierre de sesión
    ├── /api/track      → búsqueda en SQLite
    ├── /api/avisos     → avisos operativos
-   └── /api/estado     → latencia y estado (monitor o self)
+   └── /api/estado     → latencia y estado propios
         │
-        ├── SQLite  /var/lib/portal/portal.db
-        └── CSV     /srv/monitor/metricas/metricas_*.csv  (opcional)
+        └── SQLite  /var/lib/portal/portal.db
 ```
 
 **Capas**
@@ -106,7 +105,7 @@ Navegador (HTML/CSS/JS)
 | Seguridad | Contraseñas, sesiones, CSRF, rate limit, cabeceras | `auth.py`, `seguridad.py` |
 | Datos | Esquema, semilla, consultas | `datos.py` |
 | API | Serialización y códigos HTTP | `api.py` |
-| Monitor | Lectura del CSV y métricas propias | `monitor.py` |
+| Rendimiento | Medición propia (servidor) | `rendimiento.py` |
 | Interfaz | Estructura, estilos y comportamiento | `web/` |
 
 Servidor `ThreadingHTTPServer` con `protocol_version = "HTTP/1.1"`, `Content-Length`
@@ -127,7 +126,6 @@ correcto en cada respuesta, timeout de socket y límite de cuerpo (16 KB).
 | Comparación segura | `hmac` | `compare_digest` en contraseñas y tokens |
 | Sesiones y CSRF | `secrets`, `http.cookies` | `token_urlsafe`, cookie `HttpOnly` |
 | Validación | `re`, `ipaddress` | Número de contenedor, IP del cliente |
-| CSV del monitor | `csv`, `pathlib` | Última fila de `PortalWeb` |
 | MIME y estáticos | `mimetypes`, `pathlib` | Tipo correcto y protección de rutas |
 | Configuración | `tomllib`, `argparse` | `portal.toml`, subcomandos |
 | Tiempo | `datetime`, `zoneinfo`, `time` | Ventanas de rate limit y latencias |
@@ -296,29 +294,21 @@ la API.
 - `GET /api/track` normaliza mayúsculas/espacios y valida el formato antes de consultar.
 - Si el contenedor tiene el dígito verificador inválido, se responde `400` con un
   mensaje que explica el formato (no se busca en la base).
-- `GET /api/estado` devuelve `fuente` con uno de `monitor`, `monitor-obsoleto`,
-  `servidor` o `simulado`, para que la interfaz pueda etiquetar el dato.
+- `GET /api/estado` devuelve `fuente` con `servidor` o `simulado`, para que la
+  interfaz pueda etiquetar el dato.
 
 ### 7.1 Origen del indicador de rendimiento
 
-1. **Servidor (por defecto):** medir una consulta de prueba a SQLite (`SELECT 1`) o la
-   última duración registrada de `/api/track`, con `perf_counter`; la interfaz además
-   cronometra la petición en el navegador con `performance.now` y muestra ambos valores
-   (“navegador” y “servidor”).
-2. **Monitor (opcional):** si el CSV se copió a VM2, leer el más reciente de
-   `metricas_*.csv`, filtrar `modulo == "PortalWeb"` y `fuente == "http"`, y tomar la
-   última fila por `timestamp`; devolver `latencia_ms`, `http_status` y `timestamp`.
-3. **Simulado:** si no hay medición disponible, usar un valor determinista (semilla
-   fija) entre 250 y 800 ms, con `fuente = "simulado"`.
-
-Copiar el CSV del monitor a VM2 no es obligatorio: el monitor ya mide el portal y su CSV
-es la evidencia del informe. Para el widget, la opción simple es medir la propia
-petición; la opción externa requiere un `scp` diario (o cada hora) desde el monitor.
+1. **Servidor:** medir una consulta de prueba a SQLite (`SELECT 1`) o la última
+   duración registrada de `/api/track`, con `perf_counter`; devolver `latencia_ms` y
+   `fuente = "servidor"`.
+2. **Navegador:** la interfaz cronometra la petición real con `performance.now` y
+   muestra “navegador X ms / servidor Y ms”; ese valor no se envía al backend.
+3. **Simulado:** solo si el servidor no pudo medir (por ejemplo, el primer arranque),
+   usar un valor determinista entre 250 y 800 ms, con `fuente = "simulado"`.
 
 La interfaz muestra siempre la fuente y la hora; nunca se rotula como “real” un dato
-simulado. Si el CSV existe pero está viejo (> 15 min), se devuelve
-`fuente = "monitor-obsoleto"` con la marca de tiempo vieja y la interfaz lo advierte;
-no se hace pasar por actual.
+simulado. El CSV del monitor se queda para el informe, no para la landing.
 
 ---
 
@@ -407,7 +397,7 @@ pa/
 │   ├── seguridad.py        # cabeceras, cookies, validación
 │   ├── datos.py            # SQLite: esquema, semilla, consultas
 │   ├── api.py              # endpoints JSON
-│   ├── monitor.py          # lectura del CSV de métricas
+│   ├── rendimiento.py      # medición propia del servidor
 │   ├── config.py           # TOML + argparse
 │   └── web/
 │       ├── index.html
@@ -426,7 +416,7 @@ pa/
 │   ├── test_auth.py
 │   ├── test_api.py
 │   ├── test_estaticos.py
-│   └── test_monitor.py
+│   └── test_rendimiento.py
 ├── portal.toml
 └── README.md
 ```
@@ -455,10 +445,7 @@ ventana_s = 600
 bloqueo_s = 120
 intentos_maximos_ip = 20
 
-[monitor]
-csv_dir = "/var/lib/portal/metricas"       # opcional: copia del CSV del monitor
-recurso_portal = "10.30.50.5"
-frescura_max_s = 900
+[rendimiento]
 umbral_degradado_ms = 10000
 ```
 
@@ -495,7 +482,7 @@ umbral_degradado_ms = 10000
 | Unitario | Dígito verificador ISO 6346, normalización de búsqueda | `unittest` |
 | Unitario | `scrypt`, comparación de contraseñas, sesiones, CSRF | `unittest` |
 | Unitario | Rate limiter con reloj simulado (5 fallos, bloqueo, expiración) | `unittest` + `mock` |
-| Unitario | Lectura del CSV del monitor y fallback | `tests/fixtures/metricas.csv` |
+| Unitario | Medición de rendimiento y fallback simulado | `unittest` + `mock` |
 | Integración | Login correcto/incorrecto, cookie y flags | `http.client` contra servidor efímero |
 | Integración | `429` tras 5 fallos y `Retry-After` | mismo servidor |
 | Integración | Búsqueda encontrada/no encontrada, BL y orden | mismo servidor |
@@ -512,8 +499,8 @@ umbral_degradado_ms = 10000
    correcta durante el bloqueo también se rechaza.
 3. Un contenedor válido devuelve estado, detalles y timeline; uno inválido, un `404`
    amable; BL y orden también funcionan.
-4. El widget muestra latencia < 1 s con la fuente (`monitor`/`monitor-obsoleto`/
-   `servidor`/`simulado`) y la hora.
+4. El widget muestra latencia < 1 s con la fuente (`servidor`/`simulado`), el valor
+   del navegador y la hora.
 5. `curl -k -I https://portal.portocaribe.local/` (Apache) muestra CSP, HSTS,
    `nosniff` y `no-referrer`; el backend solo responde en `127.0.0.1:8080`.
 6. La cookie de sesión es `HttpOnly; Secure; SameSite=Strict` y el CSRF se exige.
@@ -534,7 +521,7 @@ umbral_degradado_ms = 10000
 | **L2. Autenticación** | scrypt, sesiones, CSRF, rate limit y UI de bloqueo | 4 | Login y `429` funcionando |
 | **L3. Datos y tracking** | SQLite, semilla, búsqueda, timeline, API | 4 | Consultas por número/BL/orden |
 | **L4. Interfaz** | Login, resultados, timeline, avisos, soporte, responsive | 5 | Flujo completo en navegador |
-| **L5. Rendimiento** | Widget, lectura del CSV, modos y etiquetas | 2 | Latencia visible y atribuida |
+| **L5. Rendimiento** | Widget, medición propia y etiquetas | 2 | Latencia visible y atribuida |
 | **L6. Calidad** | Pruebas, accesibilidad, errores, revisión de seguridad | 3 | Suite verde y checklist |
 | **L7. Despliegue** | Apache/TLS, `systemd`, README, guion de demo | 2 | Servicio activo en VM2 |
 
@@ -555,7 +542,7 @@ Orden sugerido: L0 → L1 → L2 → L3 → L4 → L5 → L6 → L7.
 | SQLite con escrituras concurrentes | `database is locked` | WAL, `timeout`, escritura corta |
 | CSP bloquea estilos/scripts inline | Página sin estilos | CSS/JS externos y `script-src 'self'` |
 | Datos simulados confundidos con reales | Conclusiones falsas | `fuente` visible, banner DEMO, fechas de siembra |
-| Monitor sin CSV accesible | Widget sin dato real | Fallback medido/simulado etiquetado |
+| JS deshabilitado o `performance.now` no disponible | Sin medición del navegador | Se muestra solo el tiempo del servidor |
 | JS deshabilitado | Sin búsqueda | `<noscript>` con contacto |
 | Afirmar “< 1 s” sin medir | Demostración engañosa | Medición real por respuesta y registro |
 | Apache y Python compitiendo por el puerto | Servicio caído | Python solo en 127.0.0.1:8080; Apache en 443 |
@@ -575,8 +562,7 @@ Orden sugerido: L0 → L1 → L2 → L3 → L4 → L5 → L6 → L7.
 
 **Pendientes**
 
-- ¿El widget se queda solo con la medición propia o se copia también el CSV del
-  monitor a VM2 para mostrar la medición externa?
+- Ninguno: se adopta la medición propia (navegador + servidor) y no se copia el CSV.
 
 ## 15. Siguiente paso
 
