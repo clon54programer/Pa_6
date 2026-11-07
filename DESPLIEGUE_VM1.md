@@ -194,6 +194,9 @@ apareció al ejecutar contra un portal real.
 
 ## 8. Pendientes y advertencias
 
+> El detalle completo de brechas, prioridades y criterios de cierre está en
+> [`PENDIENTES.md`](PENDIENTES.md).
+
 - **IP dinámica.** `enp0s3` toma `192.168.137.54` por DHCP desde el equipo anfitrión. Si
   cambia, hay que regenerar el certificado (el SAN lleva la IP) o fijar la dirección.
 - **`su -` obligatorio**: el usuario `vboxuser` no tiene `sudo`, y las tareas de root

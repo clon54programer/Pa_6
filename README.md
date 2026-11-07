@@ -32,6 +32,7 @@ poca visibilidad de la carga y necesidad de controles de acceso.
 | **Dataset** | Muestra del monitor en CSV/JSONL | [`data/csv/metricas_2026-11-06.csv`](data/csv/metricas_2026-11-06.csv), [`data/raw/2026-11-06/`](data/raw/2026-11-06/) |
 | **Despliegue** | Apache, systemd, cron/timers y recolección SSH | [`apache/`](apache/), [`programacion/`](programacion/), [`config/ssh/`](config/ssh/) |
 | **Despliegue en VM1** | Instalador idempotente, configs y units de la máquina real | [`despliegue/vm1/`](despliegue/vm1/), [`DESPLIEGUE_VM1.md`](DESPLIEGUE_VM1.md) |
+| **Pendientes** | Brechas de alcance, robustez, dataset y prioridades | [`PENDIENTES.md`](PENDIENTES.md) |
 
 ---
 
