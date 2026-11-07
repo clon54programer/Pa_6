@@ -219,6 +219,7 @@ python3 -m unittest discover -s tests -v
 | [`plan_implementacion_landing.md`](plan_implementacion_landing.md) | Diseño del portal demo, API, seguridad y despliegue |
 | [`monitor/README.md`](monitor/README.md) | Uso y operación del monitor |
 | [`portal/README.md`](portal/README.md) | Uso y despliegue del portal |
+| [`firewall/README.md`](firewall/README.md) | Firewall/router ASA 5505: configuración, pruebas y reconexión |
 
 ---
 

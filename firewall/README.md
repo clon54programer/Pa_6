@@ -229,6 +229,7 @@ write memory
 | [`asa5505-portocaribe.cfg`](asa5505-portocaribe.cfg) | Configuración aplicada, lista para reaplicar |
 | [`backup/asa5505-running-config-2026-11-07.txt`](backup/asa5505-running-config-2026-11-07.txt) | Running-config original completo (respaldo/rollback) |
 | [`PRUEBAS.md`](PRUEBAS.md) | Plan de pruebas: enlaces, `packet-tracer` y hosts reales |
+| [`RECONEXION.md`](RECONEXION.md) | Procedimiento para apagar/mover/reconectar el equipo |
 | `README.md` | Este documento |
 
 ### Conexión de consola
@@ -239,3 +240,19 @@ PuTTY → Serial → COM3 → 9600, 8, None, 1, flow control None
 
 Si aparece `Username:`, usar `admin` / `Porto2026*`. Para entrar a privilegio 15:
 `enable` / `Porto2026*`.
+
+---
+
+## 9. Reconexión
+
+Si el equipo se apaga, se mueve o se desconecta de la consola/red, la configuración se
+conserva en el `startup-config`. El procedimiento completo (orden de conexión,
+credenciales, verificación y diagnóstico) está en [`RECONEXION.md`](RECONEXION.md).
+
+Resumen:
+
+1. Energía y esperar el arranque; consola COM3 9600 8N1.
+2. Conectar Et0/0 (outside), Et0/1-0/4 (inside) y Et0/5-0/7 (dmz).
+3. Entrar con `admin` / `Porto2026*` (si pide login) y `enable` / `Porto2026*`.
+4. Verificar `show interface ip brief`, `show switch vlan`, `show route` y
+   `show startup-config`.

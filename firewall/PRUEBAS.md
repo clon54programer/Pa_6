@@ -3,6 +3,9 @@
 Tres niveles, de menos a más infraestructura. Con el nivel 2 se valida toda la política
 sin necesidad de servidores; el nivel 3 valida el tráfico real.
 
+> Si vienes de apagar, mover o desconectar el equipo, primero sigue
+> [`RECONEXION.md`](RECONEXION.md) y luego vuelve aquí.
+
 ---
 
 ## 0. Antes de empezar
