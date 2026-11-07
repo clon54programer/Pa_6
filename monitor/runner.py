@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import fcntl
+import errno
 import json
 import logging
 import os
@@ -17,6 +17,12 @@ from . import recoleccion, seguridad, sondas
 from .config import Config
 from .escritura import escribir_jsonl
 from .modelos import Resultado
+
+try:  # POSIX (Linux, destino del monitor)
+    import fcntl
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None
+    import msvcrt
 
 LOG = logging.getLogger("monitor.runner")
 EXITO = {"ONLINE", "OK", "DROPPED"}
@@ -322,11 +328,26 @@ def _bloqueo(ruta: Path):
     ruta.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(ruta, os.O_CREAT | os.O_RDWR, 0o644)
     try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if fcntl is not None:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        else:  # Windows: bloquea el primer byte del archivo
+            msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
         return descriptor
-    except BlockingIOError:
+    except OSError as exc:
         os.close(descriptor)
-        return None
+        if exc.errno in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+            return None
+        raise
+
+
+def _desbloqueo(descriptor: int) -> None:
+    try:
+        if fcntl is not None:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        else:  # Windows
+            msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+    finally:
+        os.close(descriptor)
 
 
 def ejecutar(config: Config, simular: bool = False, solo: set[str] | None = None, dry_run: bool = False) -> int:
@@ -395,7 +416,4 @@ def ejecutar(config: Config, simular: bool = False, solo: set[str] | None = None
         print(f"JSONL: {archivo}")
         return 0 if fallidos == 0 else 1
     finally:
-        try:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
-        finally:
-            os.close(descriptor)
+        _desbloqueo(descriptor)

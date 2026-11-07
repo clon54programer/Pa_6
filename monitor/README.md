@@ -18,6 +18,9 @@ python3 -m monitor export --config monitor.toml --fecha 2026-11-06
 - `recolectar` trae snapshots por SSH (requiere clave y VM1/VM2).
 - `prune` aplica la retención.
 
+En Windows hace falta `tzdata` (para `zoneinfo`); el bloqueo de corridas usa `msvcrt`
+en lugar de `fcntl`. El resto del monitor está pensado para Linux.
+
 ## Módulos
 
 | Módulo | Sonda |
