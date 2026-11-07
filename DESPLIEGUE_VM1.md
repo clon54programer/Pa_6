@@ -95,23 +95,23 @@ real más el export del día.
 ## 4. Operación diaria
 
 ```bash
-# muestra manual (con snapshots previos, igual que el timer)
-sudo systemctl start portocaribe-monitor.service
+# muestra manual (con snapshots previos, igual que el timer) — como root
+systemctl start portocaribe-monitor.service
 
 # estado y programación
 systemctl list-timers --all | grep portocaribe
 systemctl status portal apache2 portocaribe-muestreo.timer
 
-# reconstruir el CSV de un día
+# reconstruir el CSV de un día (como root)
 cd /opt/portocaribe-monitor
-sudo -u monitor python3 -m monitor export --config /etc/monitor/monitor.toml --fecha 2026-11-07
+runuser -u monitor -- python3 -m monitor export --config /etc/monitor/monitor.toml --fecha 2026-11-07
 
 # validar configuración / simular el dataset completo (sin infraestructura)
-sudo -u monitor python3 -m monitor validate --config /etc/monitor/monitor.toml
-sudo -u monitor python3 -m monitor run --simulate --config /etc/monitor/monitor.toml
+runuser -u monitor -- python3 -m monitor validate --config /etc/monitor/monitor.toml
+runuser -u monitor -- python3 -m monitor run --simulate --config /etc/monitor/monitor.toml
 
 # retención (180 días por defecto)
-sudo -u monitor python3 -m monitor prune --config /etc/monitor/monitor.toml
+runuser -u monitor -- python3 -m monitor prune --config /etc/monitor/monitor.toml
 
 # logs
 journalctl -u portal -f
@@ -120,11 +120,55 @@ journalctl -u portocaribe-monitor.service --since today
 
 > `sudo` **no está disponible** en esta máquina: para tareas de root usar `su -`
 > (o `su - -c 'orden'`). El usuario `monitor` no tiene privilegios y solo lee los
-> snapshots y escribe su propio directorio de datos.
+> snapshots y escribe su propio directorio de datos; por eso los comandos que actúan en
+> su nombre se lanzan como root con `runuser -u monitor --`.
 
 El CSV diario se produce a las 23:59 con todas las muestras del día; `export` es
 idempotente, así que puede relanzarse sin miedo. El CSV usa `utf-8-sig` (Excel/Power BI),
 27 columnas del esquema v1 y las celdas no aplicables quedan vacías.
+
+### 4.1 Ver los logs desde otro equipo (SSH)
+
+El monitor **no escribe un archivo de log propio**: systemd captura su salida en el
+journal, así que los logs se consultan con `journalctl`. El usuario `vboxuser` se agregó a
+los grupos `adm` y `systemd-journal`, de modo que ya puede leerlos sin ser root (si se
+quitara, `journalctl` respondería "No entries" con un aviso). El cambio es reproducible con
+[`despliegue/vm1/diagnostico/habilitar_logs.sh`](despliegue/vm1/diagnostico/habilitar_logs.sh):
+`usermod -aG adm,systemd-journal vboxuser`, y aplica a las sesiones SSH nuevas.
+
+Desde el PC, con OpenSSH (PowerShell o CMD):
+
+```powershell
+# últimas ejecuciones del muestreo
+ssh -p 22 vboxuser@192.168.137.54 "journalctl -u portocaribe-monitor -n 50 --no-pager"
+
+# solo el resumen de cada corrida (una línea por muestra)
+ssh -p 22 vboxuser@192.168.137.54 "journalctl -u portocaribe-monitor -o cat --no-pager | tail -20"
+
+# en vivo, mientras trabajas
+ssh -p 22 vboxuser@192.168.137.54 "journalctl -u portocaribe-monitor -f"
+
+# cierre diario del CSV, servicio del portal y Apache
+ssh -p 22 vboxuser@192.168.137.54 "journalctl -u portocaribe-export -n 30 --no-pager"
+ssh -p 22 vboxuser@192.168.137.54 "journalctl -u portal -n 30 --no-pager"
+ssh -p 22 vboxuser@192.168.137.54 "tail -n 30 /var/log/apache2/portal-error.log"
+
+# desde una fecha/hora concreta
+ssh -p 22 vboxuser@192.168.137.54 "journalctl -u portocaribe-monitor --since '2026-11-07 13:00' --no-pager"
+```
+
+Traer los datos al PC (el CSV y los JSONL):
+
+```powershell
+scp -P 22 vboxuser@192.168.137.54:/var/lib/portocaribe-monitor/datos/csv/metricas_2026-11-07.csv .
+scp -P 22 -r vboxuser@192.168.137.54:/var/lib/portocaribe-monitor/datos/raw/2026-11-07 .
+```
+
+Si en algún momento se prefiere un archivo en disco además del journal, basta añadir a
+`/etc/systemd/system/portocaribe-monitor.service` la línea
+`StandardOutput=append:/var/lib/portocaribe-monitor/datos/logs/monitor.log` y ejecutar
+`systemctl daemon-reload`.
+
 
 ---
 
