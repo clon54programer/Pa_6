@@ -1,0 +1,43 @@
+#!/bin/sh
+# /usr/local/bin/portocaribe-snapshots-local
+#
+# Genera, en VM1 y antes de cada muestra, los snapshots locales que consume
+# `python3 -m monitor run` (módulos Portal/Seguridad). Se ejecuta como root
+# desde systemd (ExecStartPre=+) porque `iptables-save` y la lectura de los
+# logs del kernel requieren privilegios; el monitor sigue corriendo como
+# usuario `monitor` y solo lee los archivos resultantes.
+#
+# Salida: /var/lib/portocaribe-monitor/datos/entradas/local/
+set -u
+
+DATOS=/var/lib/portocaribe-monitor/datos/entradas/local
+mkdir -p "$DATOS"
+umask 022
+
+# Estado del servicio Apache (systemctl is-active apache2)
+systemctl is-active apache2 > "$DATOS/apache.txt" 2>/dev/null || true
+[ -s "$DATOS/apache.txt" ] || echo "inactive" > "$DATOS/apache.txt"
+
+# Contadores de iptables (reglas con -c). Si falla, se conserva el anterior.
+if command -v iptables-save >/dev/null 2>&1; then
+    if iptables-save -c > "$DATOS/.iptables.tmp" 2>/dev/null; then
+        mv -f "$DATOS/.iptables.tmp" "$DATOS/iptables.save"
+    else
+        rm -f "$DATOS/.iptables.tmp"
+    fi
+fi
+
+# Contadores de red del kernel
+cat /proc/net/netstat > "$DATOS/netstat.txt" 2>/dev/null || true
+cat /proc/net/snmp    > "$DATOS/snmp.txt"    2>/dev/null || true
+
+# Log de autenticación SSH (últimas 500 líneas, con hora ISO)
+journalctl -u ssh -n 500 -o short-iso --no-pager > "$DATOS/auth.log" 2>/dev/null \
+    || journalctl _COMM=sshd -n 500 -o short-iso --no-pager > "$DATOS/auth.log" 2>/dev/null \
+    || : > "$DATOS/auth.log"
+
+# Log del kernel (posibles SYN flood y bloqueos con prefijo VLANxx-DROP)
+journalctl -k -n 500 -o short-iso --no-pager > "$DATOS/kern.log" 2>/dev/null || :
+
+chmod 0644 "$DATOS"/* 2>/dev/null || true
+exit 0

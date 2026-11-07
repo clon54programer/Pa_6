@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import csv
-import http.client
+import http.client as http_cliente
 import json
 import os
 import re
@@ -75,7 +75,7 @@ def http(url: str, timeout: float = 15, verificar_tls: bool = False) -> dict:
     if not verificar_tls:
         contexto.check_hostname = False
         contexto.verify_mode = ssl.CERT_NONE
-    clase = http.client.HTTPSConnection if esquema == "https" else http.client.HTTPConnection
+    clase = http_cliente.HTTPSConnection if esquema == "https" else http_cliente.HTTPConnection
     conexion = clase(host, puerto, timeout=timeout, context=contexto) if esquema == "https" else clase(host, puerto, timeout=timeout)
     inicio = time.perf_counter()
     try:
@@ -95,7 +95,7 @@ def http(url: str, timeout: float = 15, verificar_tls: bool = False) -> dict:
             "tls": tls,
             "detalle": f"HTTP {respuesta.status} · TLS {tls or 'no'}",
         }
-    except (OSError, ssl.SSLError, http.client.HTTPException) as exc:
+    except (OSError, ssl.SSLError, http_cliente.HTTPException) as exc:
         raise SondaError(f"HTTP falló: {exc}") from exc
     finally:
         conexion.close()

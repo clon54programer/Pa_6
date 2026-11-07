@@ -1,0 +1,93 @@
+# Monitor PortoCaribe — configuración de VM1 (debian3, 192.168.137.54)
+# Monitor y Portal conviven en esta VM. Cámaras, PostgreSQL, VoIP, DHCP y QoS
+# quedan deshabilitados hasta que existan VM2 y los equipos de la topología.
+
+[general]
+zona_horaria = "America/Bogota"
+timeout_s = 5
+timeout_total_s = 120
+reintentos = 2
+max_workers = 8
+directorio_datos = "/var/lib/portocaribe-monitor/datos"
+retencion_dias = 180
+intervalo_s = 300
+frescura_max_s = 900
+version_esquema = 1
+
+[recoleccion]
+# Recolección SSH remota deshabilitada: en VM1 los snapshots son locales.
+habilitado = false
+usuario = "monitor"
+clave = "/etc/monitor/id_ed25519"
+known_hosts = "/etc/monitor/known_hosts"
+timeout_s = 15
+recolectar_antes = false
+
+[salida]
+csv = true
+jsonl = true
+codificacion = "utf-8-sig"
+
+[camaras]
+habilitado = false
+ping_paquetes = 4
+rtsp_puerto = 554
+
+[portal]
+habilitado = true
+url = "https://127.0.0.1/"
+timeout_s = 15
+umbral_degradado_s = 10.0
+verificar_tls = false
+estado_apache = "/var/lib/portocaribe-monitor/datos/entradas/local/apache.txt"
+
+[base_datos]
+habilitado = false
+host = "127.0.0.1"
+puerto = 5432
+base = "portocaribe"
+usuario = "monitor"
+pgpassfile = "/etc/monitor/pgpass"
+
+[voip]
+habilitado = false
+host = "127.0.0.1"
+sip_puerto = 5060
+ami = false
+ami_puerto = 5038
+ami_usuario = "monitor"
+ami_secreto_env = "ASTERISK_AMI_SECRET"
+cdr = "/var/lib/portocaribe-monitor/datos/entradas/local/cdr.csv"
+
+[qos]
+habilitado = false
+servidor_iperf = "127.0.0.1"
+duracion_s = 10
+ancho_banda = "20M"
+interfaz = "enp0s3"
+
+[seguridad]
+# Deshabilitado en VM1: las reglas VLAN30-DROP/VLAN40-DROP, fail2ban y los
+# snapshots de seguridad viven en VM2 (fuera de alcance por ahora). Con las
+# reglas ufw locales el módulo etiquetaría tráfico ACCEPT como VLAN40_BLOCKED.
+# Al integrar VM2 basta poner habilitado = true y apuntar las rutas a
+# data/entradas/vm2/ con la recolección SSH activa.
+habilitado = false
+modo = "archivo"
+entradas = "/var/lib/portocaribe-monitor/datos/entradas/local"
+iptables_save = "/var/lib/portocaribe-monitor/datos/entradas/local/iptables.save"
+fail2ban_estado = "/var/lib/portocaribe-monitor/datos/entradas/local/fail2ban.txt"
+fail2ban_log = "/var/lib/portocaribe-monitor/datos/entradas/local/fail2ban.log"
+auth_log = "/var/lib/portocaribe-monitor/datos/entradas/local/auth.log"
+kern_log = "/var/lib/portocaribe-monitor/datos/entradas/local/kern.log"
+netstat = "/var/lib/portocaribe-monitor/datos/entradas/local/netstat.txt"
+snmp = "/var/lib/portocaribe-monitor/datos/entradas/local/snmp.txt"
+prefijos_iptables = ["VLAN30-DROP:", "VLAN40-DROP:"]
+jail = "sshd"
+
+[dhcp]
+habilitado = false
+modo = "archivo"
+entradas = "/var/lib/portocaribe-monitor/datos/entradas/local"
+leases = "/var/lib/portocaribe-monitor/datos/entradas/local/dhcpd.leases"
+estado = "/var/lib/portocaribe-monitor/datos/entradas/local/dhcp_estado.txt"

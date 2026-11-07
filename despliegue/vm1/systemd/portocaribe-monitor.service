@@ -1,0 +1,18 @@
+[Unit]
+Description=Monitor PortoCaribe (muestreo cada 5 minutos)
+Documentation=file:///opt/portocaribe-monitor/monitor/README.md
+After=network-online.target apache2.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=monitor
+Group=monitor
+WorkingDirectory=/opt/portocaribe-monitor
+Environment=PYTHONDONTWRITEBYTECODE=1
+# El collector corre con privilegios (prefijo +) para leer iptables y el journal;
+# el monitor en sí se ejecuta como usuario `monitor` y solo lee los snapshots.
+ExecStartPre=+/usr/local/bin/portocaribe-snapshots-local
+ExecStart=/usr/bin/python3 -m monitor run --config /etc/monitor/monitor.toml
+TimeoutStartSec=180
+Nice=10

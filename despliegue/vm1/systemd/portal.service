@@ -1,0 +1,26 @@
+[Unit]
+Description=Portal de Clientes PortoCaribe (servidor Python en 127.0.0.1:8080)
+Documentation=file:///opt/portal/portal/README.md
+After=network.target
+
+[Service]
+Type=simple
+User=portal
+Group=portal
+WorkingDirectory=/opt/portal
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m portal --config /etc/portal/portal.toml
+Restart=always
+RestartSec=3
+TimeoutStopSec=10
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/portal
+ReadOnlyPaths=/opt/portal /etc/portal
+
+[Install]
+WantedBy=multi-user.target

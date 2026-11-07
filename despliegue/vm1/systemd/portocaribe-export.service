@@ -1,0 +1,12 @@
+[Unit]
+Description=Monitor PortoCaribe (cierre diario del CSV)
+
+[Service]
+Type=oneshot
+User=monitor
+Group=monitor
+WorkingDirectory=/opt/portocaribe-monitor
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m monitor export --config /etc/monitor/monitor.toml
+ExecStartPost=/usr/bin/python3 -m monitor prune --config /etc/monitor/monitor.toml
+TimeoutStartSec=300

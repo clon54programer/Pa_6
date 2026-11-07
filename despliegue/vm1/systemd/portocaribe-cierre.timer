@@ -1,0 +1,11 @@
+[Unit]
+Description=Monitor PortoCaribe (cierre diario del CSV a las 23:59)
+
+[Timer]
+OnCalendar=*-*-* 23:59:00 America/Bogota
+AccuracySec=30s
+Persistent=true
+Unit=portocaribe-export.service
+
+[Install]
+WantedBy=timers.target

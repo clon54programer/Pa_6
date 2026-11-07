@@ -12,7 +12,13 @@ poca visibilidad de la carga y necesidad de controles de acceso.
 > **Estado:** monitor implementado y probado (18 pruebas), portal implementado y validado
 > funcionalmente, documentación y artefactos de despliegue listos. Los datos del portal
 > son ficticios y el dataset del monitor que se incluye proviene de una corrida
-> simulada, porque las VMs del laboratorio no se operan desde este repositorio.
+> simulada.
+>
+> **Desplegado en VM1** (`192.168.137.54`, Debian 12) el 2026-11-07: el portal se publica
+> con Apache en `https://192.168.137.54/` y el monitor muestrea cada 5 minutos con
+> `systemd` (cierre diario del CSV a las 23:59). Detalles, rutas, operación y
+> verificación en [`DESPLIEGUE_VM1.md`](DESPLIEGUE_VM1.md). VM2, cámaras y VoIP siguen
+> fuera de alcance.
 
 ---
 
@@ -25,6 +31,7 @@ poca visibilidad de la carga y necesidad de controles de acceso.
 | **Planes** | Requisitos y diseño del monitor y de la landing | [`plan_de_script_python.md`](plan_de_script_python.md), [`plan_implementacion_monitor.md`](plan_implementacion_monitor.md), [`landing_pages_plan.md`](landing_pages_plan.md), [`plan_implementacion_landing.md`](plan_implementacion_landing.md) |
 | **Dataset** | Muestra del monitor en CSV/JSONL | [`data/csv/metricas_2026-11-06.csv`](data/csv/metricas_2026-11-06.csv), [`data/raw/2026-11-06/`](data/raw/2026-11-06/) |
 | **Despliegue** | Apache, systemd, cron/timers y recolección SSH | [`apache/`](apache/), [`programacion/`](programacion/), [`config/ssh/`](config/ssh/) |
+| **Despliegue en VM1** | Instalador idempotente, configs y units de la máquina real | [`despliegue/vm1/`](despliegue/vm1/), [`DESPLIEGUE_VM1.md`](DESPLIEGUE_VM1.md) |
 
 ---
 
