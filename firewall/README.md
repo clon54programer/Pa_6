@@ -146,7 +146,8 @@ Ejecutado por consola:
 > cliente DHCP la reemplazará cuando el puerto Et0/0 levante.
 
 **Pendiente de cablear** (por eso no se pudo ejecutar `packet-tracer`, que exige interfaz
-`up`):
+`up`). El plan completo, con la matriz de pruebas y los valores esperados, está en
+[`PRUEBAS.md`](PRUEBAS.md).
 
 ```bash
 # Con los cables conectados:
@@ -227,6 +228,7 @@ write memory
 |---|---|
 | [`asa5505-portocaribe.cfg`](asa5505-portocaribe.cfg) | Configuración aplicada, lista para reaplicar |
 | [`backup/asa5505-running-config-2026-11-07.txt`](backup/asa5505-running-config-2026-11-07.txt) | Running-config original completo (respaldo/rollback) |
+| [`PRUEBAS.md`](PRUEBAS.md) | Plan de pruebas: enlaces, `packet-tracer` y hosts reales |
 | `README.md` | Este documento |
 
 ### Conexión de consola
