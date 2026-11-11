@@ -19,10 +19,10 @@ timeout_s = 15
 recolectar_antes = true
 
 [recoleccion.vm1]
-host = "10.30.60.10"
+host = "192.168.100.60"
 
 [recoleccion.vm2]
-host = "10.30.50.5"
+host = "192.168.100.59"
 
 [salida]
 csv = true
@@ -36,7 +36,7 @@ rtsp_puerto = 554
 
 [portal]
 habilitado = true
-url = "https://10.30.50.5/"
+url = "https://192.168.100.59/"
 timeout_s = 15
 umbral_degradado_s = 10.0
 verificar_tls = false
@@ -44,7 +44,7 @@ estado_apache = "data/entradas/vm2/apache.txt"
 
 [base_datos]
 habilitado = true
-host = "10.30.50.5"
+host = "192.168.100.59"
 puerto = 5432
 base = "portocaribe"
 usuario = "monitor"
@@ -52,7 +52,7 @@ pgpassfile = "/etc/monitor/pgpass"
 
 [voip]
 habilitado = true
-host = "10.30.60.10"
+host = "192.168.100.60"
 sip_puerto = 5060
 ami = true
 ami_puerto = 5038
@@ -62,10 +62,10 @@ cdr = "data/entradas/vm1/cdr.csv"
 
 [qos]
 habilitado = false
-servidor_iperf = "10.30.50.20"
+servidor_iperf = "192.168.100.59"
 duracion_s = 10
 ancho_banda = "20M"
-interfaz = "eth1"
+interfaz = "enp0s3"
 
 [seguridad]
 habilitado = true
@@ -101,3 +101,4 @@ nombre = "Cam_Perimetro_1"
 vlan = 30
 zona = "perimetro"
 criticidad = "media"
+

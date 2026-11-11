@@ -1,0 +1,20 @@
+#!/bin/sh
+# Crea un enlace veth y un cliente DHCP en un network namespace aislado para
+# que isc-dhcp-server tenga arrendamientos reales sin tocar la red del aula.
+set -eu
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+NS=clientes
+PAR=10.30.60.1/24
+
+ip netns list | grep -qw "$NS" || ip netns add "$NS"
+if ! ip link show veth-dhcp >/dev/null 2>&1; then
+  ip link add veth-dhcp type veth peer name veth-cli
+  ip link set veth-cli netns "$NS"
+fi
+ip addr replace "$PAR" dev veth-dhcp
+ip link set veth-dhcp up
+ip netns exec "$NS" ip link set lo up
+ip netns exec "$NS" ip link set veth-cli up
+ip netns exec "$NS" dhclient -1 -v veth-cli || true
+echo "veth DHCP listo: $(ip -4 -br addr show veth-dhcp)"

@@ -1,0 +1,92 @@
+-- PortoCaribe — medidas DAX para el tablero de operación
+-- Fuente: metricas_AAAA-MM-DD.csv (27 columnas, utf-8-sig)
+-- Tablas del modelo: Metricas, Calendario, Inventario
+
+-- 1. Volumen ---------------------------------------------------------------
+Filas = COUNTROWS ( Metricas )
+
+Muestras =
+DISTINCTCOUNT ( Metricas[run_id] )
+
+-- 2. Disponibilidad --------------------------------------------------------
+Filas OK = CALCULATE ( COUNTROWS ( Metricas ), Metricas[estado] = "OK" )
+
+Disponibilidad % =
+DIVIDE ( [Filas OK], [Filas] )
+
+Disponibilidad por VLAN % =
+CALCULATE ( [Disponibilidad %], USERELATIONSHIP ( Metricas[recurso_target], Inventario[recurso] ) )
+
+-- 3. Rendimiento -----------------------------------------------------------
+Latencia media ms = AVERAGE ( Metricas[tiempo_respuesta_ms] )
+
+Latencia P95 ms =
+PERCENTILE.INC ( Metricas[tiempo_respuesta_ms], 0.95 )
+
+Perdida media % = AVERAGE ( Metricas[perdida_paquetes_pct] )
+
+Jitter medio ms = AVERAGE ( Metricas[jitter_ms] )
+
+Ancho de banda medio Mbps = AVERAGE ( Metricas[ancho_banda_mbps] )
+
+-- 4. Portal ----------------------------------------------------------------
+Portal OK % =
+DIVIDE (
+    CALCULATE ( COUNTROWS ( Metricas ), Metricas[modulo] = "PortalWeb", Metricas[estado] = "OK" ),
+    CALCULATE ( COUNTROWS ( Metricas ), Metricas[modulo] = "PortalWeb" )
+)
+
+TTFB medio ms =
+CALCULATE ( AVERAGE ( Metricas[tiempo_respuesta_ms] ), Metricas[modulo] = "PortalWeb" )
+
+-- 5. VoIP ------------------------------------------------------------------
+Llamadas =
+CALCULATE (
+    COUNTROWS ( Metricas ),
+    Metricas[modulo] = "VoIP",
+    Metricas[fuente] = "asterisk-cdr"
+)
+
+Duracion media llamada s = AVERAGE ( Metricas[duracion_llamada_s] )
+
+Canales activos max = MAX ( Metricas[llamadas_activas] )
+
+-- 6. Seguridad -------------------------------------------------------------
+Bloqueos VLAN30 = CALCULATE ( SUM ( Metricas[paquetes_delta] ), Metricas[evento_seguridad] = "VLAN30_BLOCKED" )
+
+Bloqueos VLAN40 = CALCULATE ( SUM ( Metricas[paquetes_delta] ), Metricas[evento_seguridad] = "VLAN40_BLOCKED" )
+
+Baneos fail2ban =
+CALCULATE (
+    COUNTROWS ( Metricas ),
+    Metricas[evento_seguridad] = "FAIL2BAN_BAN"
+)
+
+Bytes bloqueados = SUM ( Metricas[bytes_delta] )
+
+-- 7. DHCP y QoS ------------------------------------------------------------
+Leases activos = MAX ( Metricas[detalle] ) -- ver nota en README: usar columna calculada si se separa el número
+
+Paquetes DSCP EF =
+CALCULATE (
+    SUM ( Metricas[paquetes_delta] ),
+    Metricas[modulo] = "QoS",
+    Metricas[dscp] = 46
+)
+
+-- 8. Frescura del dataset --------------------------------------------------
+Ultima muestra = MAX ( Metricas[timestamp_utc] )
+
+Horas sin datos =
+DATEDIFF ( [Ultima muestra], NOW (), HOUR )
+
+-- 9. Columna calculada recomendada ----------------------------------------
+-- Estado simple para segmentadores
+Estado simple =
+SWITCH (
+    TRUE (),
+    Metricas[estado] IN { "OK", "ONLINE" }, "OK",
+    Metricas[estado] IN { "DEGRADED", "STALE" }, "DEGRADADO",
+    Metricas[estado] = "SKIPPED", "OMITIDO",
+    "FALLO"
+)

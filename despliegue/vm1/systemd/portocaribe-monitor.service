@@ -10,6 +10,7 @@ User=monitor
 Group=monitor
 WorkingDirectory=/opt/portocaribe-monitor
 Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=-/etc/monitor/ami.env
 # El collector corre con privilegios (prefijo +) para leer iptables y el journal;
 # el monitor en sí se ejecuta como usuario `monitor` y solo lee los snapshots.
 ExecStartPre=+/usr/local/bin/portocaribe-snapshots-local

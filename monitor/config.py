@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from . import inventario as inventario_mod
+
 DEFAULTS = {
     "general": {
         "zona_horaria": "America/Bogota",
@@ -17,7 +19,9 @@ DEFAULTS = {
         "reintentos": 2,
         "max_workers": 12,
         "directorio_datos": "data",
+        "inventario": "inventario.csv",
         "retencion_dias": 180,
+        "comprimir_dias": 7,
         "intervalo_s": 300,
         "frescura_max_s": 900,
         "version_esquema": 1,
@@ -119,6 +123,7 @@ class Config:
     qos: dict = field(default_factory=dict)
     seguridad: dict = field(default_factory=dict)
     dhcp: dict = field(default_factory=dict)
+    inventario: dict = field(default_factory=dict)
 
     @property
     def datos(self) -> Path:
@@ -133,11 +138,23 @@ class Config:
         return float(self.general["timeout_s"])
 
     @property
+    def timeout_total(self) -> float:
+        return float(self.general["timeout_total_s"])
+
+    @property
+    def intentos(self) -> int:
+        return max(1, int(self.general.get("reintentos", 2)))
+
+    @property
     def frescura(self) -> float:
         return float(self.general["frescura_max_s"])
 
     def modulo_habilitado(self, nombre: str) -> bool:
         return bool(self.__dict__[nombre].get("habilitado", False))
+
+    def ficha(self, ip: str, tipo: str | None = None) -> dict:
+        """Metadatos del inventario para una IP (vacío si no está listada)."""
+        return inventario_mod.buscar(self.inventario, ip, tipo) or {}
 
 
 def _fusionar(base: dict, encima: dict) -> dict:
@@ -166,6 +183,7 @@ def cargar_config(ruta: str | Path) -> Config:
     datos["general"]["directorio_datos"] = _resolver(
         archivo, datos["general"]["directorio_datos"]
     )
+    datos["general"]["inventario"] = _resolver(archivo, datos["general"]["inventario"])
 
     for seccion, clave in _RUTAS:
         datos[seccion][clave] = _resolver(archivo, datos[seccion][clave])
@@ -183,6 +201,16 @@ def cargar_config(ruta: str | Path) -> Config:
     }
 
     config = Config(ruta=archivo, **{clave: datos[clave] for clave in DEFAULTS})
+    config.inventario = inventario_mod.cargar(datos["general"]["inventario"])
+    for camara in config.camaras.get("lista", []):
+        inventario_mod.comparar(
+            "camaras",
+            camara.get("ip", ""),
+            inventario_mod.buscar(config.inventario, camara.get("ip", ""), "camara"),
+            nombre=camara.get("nombre"),
+            vlan=camara.get("vlan"),
+            zona=camara.get("zona"),
+        )
     validar(config)
     return config
 

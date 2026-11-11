@@ -22,7 +22,7 @@ RAIZ="$(cd "${1:-$BASE/../..}" && pwd)"
 DATOS=/var/lib/portocaribe-monitor/datos
 ENTRADAS=$DATOS/entradas/local
 SSL_DIR=/etc/apache2/ssl
-IP_PUBLICA="${IP_PUBLICA:-192.168.137.54}"
+IP_PUBLICA="${IP_PUBLICA:-192.168.100.60}"
 
 paso() { printf '\n=== %s ===\n' "$*"; }
 [ -d "$RAIZ/monitor" ] && [ -d "$RAIZ/portal" ] || {

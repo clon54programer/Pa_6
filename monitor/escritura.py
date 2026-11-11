@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import gzip
 import json
 import os
 import shutil
@@ -15,6 +16,17 @@ from .modelos import CAMPOS_CSV, Resultado, deduplicar
 
 def _raw_dir(config: Config, fecha: str) -> Path:
     return config.datos / "raw" / fecha
+
+
+def _archivos_jsonl(directorio: Path) -> list[Path]:
+    """JSONL sueltos y comprimidos, en orden estable."""
+    return sorted(list(directorio.glob("*.jsonl")) + list(directorio.glob("*.jsonl.gz")))
+
+
+def _abrir(archivo: Path):
+    if archivo.suffix == ".gz":
+        return gzip.open(archivo, "rt", encoding="utf-8")
+    return archivo.open("r", encoding="utf-8")
 
 
 def escribir_jsonl(resultados: list[Resultado], config: Config, inicio: datetime) -> Path:
@@ -35,10 +47,10 @@ def escribir_jsonl(resultados: list[Resultado], config: Config, inicio: datetime
 
 def exportar_csv(fecha: str, config: Config) -> tuple[Path, int]:
     directorio = _raw_dir(config, fecha)
-    archivos = sorted(directorio.glob("*.jsonl"))
+    archivos = _archivos_jsonl(directorio)
     resultados: list[Resultado] = []
     for archivo in archivos:
-        with archivo.open("r", encoding="utf-8") as manejador:
+        with _abrir(archivo) as manejador:
             for linea in manejador:
                 linea = linea.strip()
                 if not linea:
@@ -66,8 +78,32 @@ def exportar_csv(fecha: str, config: Config) -> tuple[Path, int]:
     return salida, len(resultados)
 
 
-def podar(config: Config, dias: int | None = None) -> list[Path]:
+def _comprimir_jsonl(directorio: Path) -> list[Path]:
+    """Comprime los JSONL del día y elimina el original (idempotente)."""
+    comprimidos: list[Path] = []
+    for archivo in directorio.glob("*.jsonl"):
+        destino = archivo.with_suffix(archivo.suffix + ".gz")
+        if destino.exists():
+            archivo.unlink(missing_ok=True)
+            continue
+        temporal = destino.with_suffix(".gz.tmp")
+        with archivo.open("rb") as origen, gzip.open(temporal, "wb", compresslevel=6) as salida:
+            shutil.copyfileobj(origen, salida)
+        os.replace(temporal, destino)
+        archivo.unlink(missing_ok=True)
+        comprimidos.append(destino)
+    return comprimidos
+
+
+def podar(config: Config, dias: int | None = None, comprimir_dias: int | None = None) -> list[Path]:
+    """Borra lo que excede la retención y comprime los JSONL antiguos."""
     limite = date.today() - timedelta(days=int(dias or config.general["retencion_dias"]))
+    comprimir = int(
+        comprimir_dias
+        if comprimir_dias is not None
+        else config.general.get("comprimir_dias", 7)
+    )
+    limite_compresion = date.today() - timedelta(days=comprimir)
     eliminados: list[Path] = []
     raw = config.datos / "raw"
     if raw.is_dir():
@@ -79,6 +115,9 @@ def podar(config: Config, dias: int | None = None) -> list[Path]:
             if fecha < limite:
                 shutil.rmtree(directorio, ignore_errors=True)
                 eliminados.append(directorio)
+            elif fecha < limite_compresion:
+                for archivo in _comprimir_jsonl(directorio):
+                    eliminados.append(archivo)
     csv_dir = config.datos / "csv"
     if csv_dir.is_dir():
         for archivo in csv_dir.glob("metricas_*.csv"):

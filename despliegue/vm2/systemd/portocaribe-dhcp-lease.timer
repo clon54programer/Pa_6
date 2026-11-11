@@ -1,0 +1,11 @@
+[Unit]
+Description=PortoCaribe renovación del arrendamiento DHCP cada 5 minutos
+
+[Timer]
+OnCalendar=*:2/5
+AccuracySec=5s
+Persistent=false
+Unit=portocaribe-dhcp-lease.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,16 @@
+[Unit]
+Description=iperf3 server PortoCaribe (QoS)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/iperf3 -s -p 5201
+Restart=always
+RestartSec=2
+User=nobody
+Group=nogroup
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

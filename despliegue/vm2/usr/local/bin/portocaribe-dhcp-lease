@@ -1,0 +1,6 @@
+#!/bin/sh
+# Pide (o renueva) un arrendamiento al DHCP de VM2 desde el namespace aislado.
+set -eu
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ip netns exec clientes dhclient -1 -v veth-cli || true
+ip netns exec clientes ip -4 -br addr show veth-cli

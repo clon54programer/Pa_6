@@ -1,0 +1,12 @@
+# PortoCaribe — reglas de filtrado de VM2 (persistidas por netfilter-persistent)
+# Las reglas VLAN30-DROP / VLAN40-DROP llevan el prefijo en el comentario y en el
+# log del kernel: el monitor las identifica por ese texto (plan §7 y §11).
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -s 10.30.30.0/24 -m comment --comment "VLAN30-DROP: camaras hacia core" -m limit --limit 6/min -j LOG --log-prefix "VLAN30-DROP: " --log-level 4
+-A INPUT -s 10.30.30.0/24 -m comment --comment "VLAN30-DROP: camaras hacia core" -j DROP
+-A INPUT -s 10.30.40.0/24 -m comment --comment "VLAN40-DROP: invitados hacia core" -m limit --limit 6/min -j LOG --log-prefix "VLAN40-DROP: " --log-level 4
+-A INPUT -s 10.30.40.0/24 -m comment --comment "VLAN40-DROP: invitados hacia core" -j DROP
+COMMIT

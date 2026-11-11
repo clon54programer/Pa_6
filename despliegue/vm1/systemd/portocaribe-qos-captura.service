@@ -1,0 +1,15 @@
+[Unit]
+Description=PortoCaribe captura DSCP de QoS (tcpdump UDP/5201)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Una captura corta por disparo: qos.pcap se reemplaza y queda acotado.
+ExecStartPre=/usr/bin/install -d -m 0755 -o monitor -g monitor /var/lib/portocaribe-monitor/datos/capturas
+ExecStart=/usr/bin/timeout --signal=INT 40 /usr/bin/tcpdump -i enp0s3 -n -s 96 -U -c 4000 -Z monitor -w /var/lib/portocaribe-monitor/datos/capturas/qos.pcap udp port 5201
+SuccessExitStatus=124 130
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=PortoCaribe arrendamiento DHCP de laboratorio
+After=isc-dhcp-server.service portocaribe-dhcp-veth.service
+Requires=portocaribe-dhcp-veth.service
+Wants=isc-dhcp-server.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/portocaribe-dhcp-lease

@@ -189,6 +189,30 @@ _SIP_DISPOSICION = {
 }
 
 
+_CAMPOS_CDR = ("uniqueid", "start", "duration", "billsec", "disposition", "src", "dst")
+
+
+def _fila_cdr(fila: list[str], cabecera: list[str] | None) -> dict:
+    """Normaliza una fila del CDR; el Master.csv de Asterisk no lleva cabecera."""
+    if cabecera:
+        datos = {clave: (fila[i] if i < len(fila) else "") for i, clave in enumerate(cabecera)}
+    else:
+
+        def posicion(indice: int) -> str:
+            return fila[indice] if indice < len(fila) else ""
+
+        datos = {
+            "src": posicion(1),
+            "dst": posicion(2),
+            "start": posicion(9),
+            "duration": posicion(12),
+            "billsec": posicion(13),
+            "disposition": posicion(14),
+            "uniqueid": posicion(16),
+        }
+    return {clave: str(datos.get(clave) or "").strip() for clave in _CAMPOS_CDR}
+
+
 def cdr(path: str, run_id: str, zona: str) -> list[Resultado]:
     archivo = Path(path)
     if not archivo.is_file():
@@ -198,11 +222,20 @@ def cdr(path: str, run_id: str, zona: str) -> list[Resultado]:
     resultados: list[Resultado] = []
     try:
         with archivo.open("r", encoding="utf-8", errors="replace", newline="") as manejador:
-            for fila in csv.DictReader(manejador):
-                uniqueid = (fila.get("uniqueid") or "").strip()
+            cabecera: list[str] | None = None
+            for fila in csv.reader(manejador):
+                if not fila:
+                    continue
+                if cabecera is None:
+                    if "uniqueid" in (celda.strip().lower() for celda in fila):
+                        cabecera = [celda.strip().lower() for celda in fila]
+                        continue
+                    cabecera = []  # sin cabecera: se procesa como datos
+                datos = _fila_cdr(fila, cabecera or None)
+                uniqueid = datos["uniqueid"]
                 if not uniqueid or uniqueid in vistos:
                     continue
-                inicio = (fila.get("start") or "").strip()
+                inicio = datos["start"]
                 if not inicio.startswith(hoy):
                     continue
                 vistos.add(uniqueid)
@@ -211,10 +244,10 @@ def cdr(path: str, run_id: str, zona: str) -> list[Resultado]:
                 except ValueError:
                     momento = datetime.now()
                 try:
-                    duracion = float(fila.get("billsec") or fila.get("duration") or 0)
+                    duracion = float(datos["billsec"] or datos["duration"] or 0)
                 except ValueError:
                     duracion = 0.0
-                disposicion = (fila.get("disposition") or "").strip().upper()
+                disposicion = datos["disposition"].upper()
                 resultados.append(
                     Resultado.crear(
                         run_id,
@@ -227,8 +260,8 @@ def cdr(path: str, run_id: str, zona: str) -> list[Resultado]:
                         linea_evento=uniqueid,
                         sip_code=_SIP_DISPOSICION.get(disposicion, 200),
                         duracion_llamada_s=duracion,
-                        ip_origen=fila.get("src"),
-                        detalle=f"{fila.get('src', '?')} -> {fila.get('dst', '?')} ({disposicion or 'SIN ESTADO'})",
+                        ip_origen=datos["src"],
+                        detalle=f"{datos['src'] or '?'} -> {datos['dst'] or '?'} ({disposicion or 'SIN ESTADO'})",
                     )
                 )
     except OSError:
@@ -236,6 +269,31 @@ def cdr(path: str, run_id: str, zona: str) -> list[Resultado]:
     if not resultados:
         return [Resultado.crear(run_id, "VoIP", "Asterisk", "SKIPPED", "asterisk-cdr", zona, detalle="sin llamadas hoy")]
     return resultados
+
+
+def ntp_sincronizado(timeout: float = 3) -> bool | None:
+    """Estado del reloj según systemd-timesyncd/chrony (plan §11).
+
+    Devuelve ``None`` si no se puede determinar (sin ``timedatectl``), ``True``
+    si está sincronizado y ``False`` si el reloj está libre.
+    """
+    binario = shutil.which("timedatectl")
+    if not binario:
+        return None
+    for argumentos in (["show", "-p", "NTPSynchronized", "--value"],
+                       ["show", "-p", "NTPSynchronized"]):
+        try:
+            proceso = subprocess.run(
+                [binario, *argumentos], capture_output=True, text=True, timeout=timeout
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        salida = (proceso.stdout or "").strip().lower()
+        if salida in ("yes", "no"):
+            return salida == "yes"
+        if "ntpsynchronized=" in salida:
+            return salida.rsplit("=", 1)[1].strip() == "yes"
+    return None
 
 
 def leer_snapshot(ruta: str, frescura_s: float) -> tuple[str | None, str | None]:
@@ -290,7 +348,7 @@ def iperf(servidor: str, duracion: int, ancho_banda: str, timeout: float, zona: 
         return Resultado.crear(run_id, "QoS", servidor, "SKIPPED", "iperf3", zona, detalle="iperf3 no instalado")
     try:
         proceso = subprocess.run(
-            [binario, "-c", servidor, "-u", "-b", ancho_banda, "-t", str(duracion), "-J"],
+            [binario, "-c", servidor, "-u", "-b", ancho_banda, "-t", str(duracion), "-S", "0xB8", "-J"],
             capture_output=True,
             text=True,
             timeout=timeout + duracion + 10,

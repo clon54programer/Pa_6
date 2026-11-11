@@ -6,3 +6,8 @@ datos/
 certs/
 data/
 *.log
+
+.tmp/
+.pylibs/
+
+labkey_test*

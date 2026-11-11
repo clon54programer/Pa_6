@@ -1,0 +1,12 @@
+[Unit]
+Description=PortoCaribe enlace veth y cliente DHCP de laboratorio
+Before=isc-dhcp-server.service
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/portocaribe-dhcp-veth
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,19 @@
+# PortoCaribe — jail de fail2ban para VM2 (sshd + apache-auth)
+[DEFAULT]
+bantime = 600
+findtime = 600
+maxretry = 5
+backend = systemd
+
+[sshd]
+enabled = true
+port = ssh
+maxretry = 5
+bantime = 900
+
+[apache-auth]
+enabled = true
+port = http,https
+logpath = /var/log/apache2/error.log
+maxretry = 5
+bantime = 900

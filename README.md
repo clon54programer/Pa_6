@@ -9,16 +9,21 @@ QoS y seguridad con herramientas livianas, y cómo el portal puede mejorar la ex
 del cliente frente a los problemas originales: consultas superiores a 10 segundos,
 poca visibilidad de la carga y necesidad de controles de acceso.
 
-> **Estado:** monitor implementado y probado (18 pruebas), portal implementado y validado
-> funcionalmente, documentación y artefactos de despliegue listos. Los datos del portal
-> son ficticios y el dataset del monitor que se incluye proviene de una corrida
-> simulada.
+> **Estado:** monitor implementado y probado (**32 pruebas**), portal validado,
+> documentación y artefactos de despliegue listos. Los datos del portal son ficticios.
 >
-> **Desplegado en VM1** (`192.168.137.54`, Debian 12) el 2026-11-07: el portal se publica
-> con Apache en `https://192.168.137.54/` y el monitor muestrea cada 5 minutos con
-> `systemd` (cierre diario del CSV a las 23:59). Detalles, rutas, operación y
-> verificación en [`DESPLIEGUE_VM1.md`](DESPLIEGUE_VM1.md). VM2, cámaras y VoIP siguen
-> fuera de alcance.
+> **Desplegado en dos VM** (red `192.168.100.0/24`, 2026-11-11):
+>
+> - **VM1 `192.168.100.60`:** monitor + **Asterisk** (SIP 5060, AMI 5038, CDR) + captura
+>   QoS + portal de respaldo. Detalles en [`DESPLIEGUE_VM1.md`](DESPLIEGUE_VM1.md).
+> - **VM2 `192.168.100.59`:** portal principal, **PostgreSQL**, **fail2ban**,
+>   **iptables** (VLAN30/40-DROP) y **DHCP**. Detalles en
+>   [`DESPLIEGUE_VM2.md`](DESPLIEGUE_VM2.md).
+>
+> El monitor mide **datos reales** de portal, base de datos, VoIP, QoS, seguridad y DHCP;
+> solo las **cámaras VLAN 30** siguen fuera de alcance (no hay hardware). Estado y
+> evidencias en [`PENDIENTES.md`](PENDIENTES.md); medidas de Power BI en
+> [`powerbi/`](powerbi/).
 
 ---
 
@@ -31,34 +36,40 @@ poca visibilidad de la carga y necesidad de controles de acceso.
 | **Planes** | Requisitos y diseño del monitor y de la landing | [`plan_de_script_python.md`](plan_de_script_python.md), [`plan_implementacion_monitor.md`](plan_implementacion_monitor.md), [`landing_pages_plan.md`](landing_pages_plan.md), [`plan_implementacion_landing.md`](plan_implementacion_landing.md) |
 | **Dataset** | Muestra del monitor en CSV/JSONL | [`data/csv/metricas_2026-11-06.csv`](data/csv/metricas_2026-11-06.csv), [`data/raw/2026-11-06/`](data/raw/2026-11-06/) |
 | **Despliegue** | Apache, systemd, cron/timers y recolección SSH | [`apache/`](apache/), [`programacion/`](programacion/), [`config/ssh/`](config/ssh/) |
-| **Despliegue en VM1** | Instalador idempotente, configs y units de la máquina real | [`despliegue/vm1/`](despliegue/vm1/), [`DESPLIEGUE_VM1.md`](DESPLIEGUE_VM1.md) |
-| **Pendientes** | Brechas de alcance, robustez, dataset y prioridades | [`PENDIENTES.md`](PENDIENTES.md) |
+| **Despliegue en VM1** | Instalador idempotente, Asterisk, QoS y units del monitor | [`despliegue/vm1/`](despliegue/vm1/), [`DESPLIEGUE_VM1.md`](DESPLIEGUE_VM1.md) |
+| **Despliegue en VM2** | Portal, PostgreSQL, fail2ban, iptables y DHCP | [`despliegue/vm2/`](despliegue/vm2/), [`DESPLIEGUE_VM2.md`](DESPLIEGUE_VM2.md) |
+| **Power BI** | Medidas DAX y guía del tablero | [`powerbi/`](powerbi/) |
+| **Pendientes** | Estado, brechas y prioridades | [`PENDIENTES.md`](PENDIENTES.md) |
 
 ---
 
 ## 2. Arquitectura
 
 ```
-                         ┌──────────────────────────────┐
-                         │ VM de monitoreo              │
-                         │ python -m monitor            │
-                         │  · sondas de red             │
-                         │  · SSH de solo lectura       │
-                         │  · JSONL → CSV               │
-                         └───────┬──────────────┬───────┘
-                                 │ SSH          │ HTTP / SIP / AMI
-                 ┌───────────────▼───┐      ┌───▼────────────────────────┐
-                 │ VM1               │      │ VM2                        │
-                 │ Asterisk + cámaras│      │ Portal (Apache + Python)   │
-                 │ CDR               │      │ PostgreSQL, fail2ban,      │
-                 │ AMI: TCP 5038     │      │ iptables, DHCP             │
-                 └───────────────────┘      └────────────────────────────┘
+                    ┌──────────────────────────────────┐
+                    │ VM1  192.168.100.60              │
+                    │ python -m monitor                │
+                    │  · sondas de red                 │
+                    │  · SSH de solo lectura a VM2     │
+                    │  · JSONL → CSV                   │
+                    │ Asterisk: SIP 5060, AMI 5038,CDR │
+                    │ tcpdump QoS (DSCP)               │
+                    └───────┬──────────────────────────┘
+                            │ SSH (monitor, sudo acotado)
+                            │ HTTPS 443 · psql 5432 · SIP/AMI
+                    ┌───────▼──────────────────────────┐
+                    │ VM2  192.168.100.59              │
+                    │ Portal (Apache + Python)         │
+                    │ PostgreSQL, fail2ban,            │
+                    │ iptables VLAN30/40-DROP, DHCP    │
+                    │ iperf3 :5201                     │
+                    └──────────────────────────────────┘
 ```
 
-- **VM1:** Asterisk y el servicio de cámaras. El monitor consulta AMI y SIP, y trae el
-  CDR por SSH.
-- **VM2:** portal, PostgreSQL, fail2ban, iptables y DHCP. El monitor consulta HTTP/HTTPS
-  y trae snapshots de Apache, seguridad y DHCP por SSH.
+- **VM1:** monitor y Asterisk. Consulta SIP/AMI localmente, lee el CDR y captura DSCP;
+  trae de VM2 los snapshots de seguridad/DHCP/Apache.
+- **VM2:** portal principal, PostgreSQL, fail2ban, iptables y DHCP. Responde HTTP/HTTPS y
+  PostgreSQL al monitor.
 - **NFS se descartó**; la recolección es por SSH con clave dedicada, wrapper cerrado y
   `sudoers` restringido.
 - El portal se publica con **Apache en 443** y este hace proxy a `127.0.0.1:8080`.
@@ -91,6 +102,9 @@ config TOML + inventario
 | Seguridad | iptables, fail2ban, auth, kernel | IPs, reglas, baneos, SYN/ICMP flood |
 | DHCP | estado + leases | servicio activo y leases |
 
+Módulos activos en el laboratorio: **portal, base de datos, VoIP, QoS, seguridad y DHCP**.
+Cámaras queda deshabilitado hasta que exista la VLAN 30.
+
 ### Salidas
 
 - **JSONL crudo:** `data/raw/YYYY-MM-DD/HHMMSS_<run_id>.jsonl`, escrito de forma atómica.
@@ -98,6 +112,8 @@ config TOML + inventario
 - **Deduplicación:** cada fila lleva una `huella` interna; los eventos de log usan una
   huella estable para que releerlos no duplique filas.
 - **Cierre diario:** `export` reconstruye el CSV y es idempotente (mismo SHA-256).
+- **Retención:** `prune` comprime a `.gz` los JSONL de más de `comprimir_dias` (7) y borra
+  lo que excede `retencion_dias` (180); `export` lee también los `.gz`.
 
 ### Ejecución
 
@@ -105,12 +121,22 @@ config TOML + inventario
 python3 -m monitor validate --config monitor.toml
 python3 -m monitor run --config monitor.toml --simulate
 python3 -m monitor export --config monitor.toml
+python3 -m monitor recolectar --config monitor.toml --host vm2
 ```
 
 - `--simulate` genera una muestra determinista sin tocar la red.
 - `--solo camaras,portal` limita los módulos.
 - `--dry-run` muestra el plan sin ejecutar.
-- `recolectar` trae snapshots por SSH; `prune` aplica retención.
+- `--json-logs` emite una línea JSON por registro.
+- `recolectar` trae snapshots por SSH en paralelo (máx. 8); `prune` aplica retención.
+
+### Robustez (§11)
+
+- Reintentos con backoff 0,5 s / 1 s + jitter en todas las sondas.
+- `timeout_total_s = 120` por corrida: lo que no termina se reporta como `ERROR`.
+- `SIGTERM`/`SIGINT` cierran la corrida, escriben el JSONL y salen con 1.
+- Chequeo NTP (`timedatectl`) en cada corrida; el resumen muestra `ntp=…`.
+- `inventario.csv` es la dimensión de nombre/VLAN/zona; el TOML solo describe qué medir.
 
 La muestra incluida se generó con `--simulate` (el directorio `data/` no se versiona;
 se regenera con los comandos anteriores):
@@ -118,7 +144,8 @@ se regenera con los comandos anteriores):
 - **14 filas**, 6 módulos, 27 columnas.
 - 2 cámaras, 2 filas de portal (HTTP + Apache), 1 base de datos, 5 VoIP (SIP + AMI + 3 CDR),
   3 eventos de seguridad y 1 DHCP.
-- Pruebas: **18/18 OK** en [`tests_monitor/`](tests_monitor/).
+- Pruebas: **32/32 OK** en [`tests_monitor/`](tests_monitor/) (incluye sonda HTTP real,
+  reintentos, señales, gzip e inventario).
 
 Para la operación real: activar `recoleccion.habilitado = true`, desplegar la clave y el
 wrapper de [`config/ssh/`](config/ssh/), y programar
@@ -182,7 +209,9 @@ python3 -m unittest discover -s tests -v
 - SSH con clave ed25519, `from=`, `restrict` y `command=` a un wrapper de recetas.
 - `sudoers` con comandos exactos; sin `shell=True`.
 - Snapshots atómicos y estado `STALE` si el archivo no se actualiza.
-- Secretos AMI por variable de entorno, nunca en TOML.
+- Secretos AMI por variable de entorno (`/etc/monitor/ami.env`), nunca en TOML.
+- AMI con `permit = 127.0.0.1` y solo las clases necesarias (`read = call,reporting`,
+  `write = system` para `CoreShowChannels`).
 
 ---
 
@@ -197,6 +226,12 @@ python3 -m unittest discover -s tests -v
 ├── apache/                   # VirtualHost con TLS y proxy
 ├── config/ssh/               # Wrapper, authorized_keys y sudoers
 ├── programacion/             # systemd, timers y cron
+├── despliegue/
+│   ├── comun/                # Repos APT y recolección SSH compartida
+│   ├── vm1/                  # Instaladores, Asterisk, QoS y units
+│   ├── vm2/                  # PostgreSQL, fail2ban, iptables, DHCP, iperf3
+│   └── diagnostico/          # Scripts de verificación usados en el laboratorio
+├── powerbi/                  # Medidas DAX y guía del tablero
 ├── data/                     # Generado: raw/, csv/, entradas/, estado/
 ├── monitor.toml              # Configuración del monitor
 ├── portal.toml               # Configuración de producción del portal
@@ -213,6 +248,10 @@ python3 -m unittest discover -s tests -v
 
 | Documento | Contenido |
 |---|---|
+| [`PENDIENTES.md`](PENDIENTES.md) | Estado del proyecto, evidencia y pendientes reales |
+| [`DESPLIEGUE_VM1.md`](DESPLIEGUE_VM1.md) | Monitor, Asterisk, QoS y portal de respaldo |
+| [`DESPLIEGUE_VM2.md`](DESPLIEGUE_VM2.md) | Portal, PostgreSQL, fail2ban, iptables y DHCP |
+| [`powerbi/README.md`](powerbi/README.md) | Carga del CSV, modelo y páginas del tablero |
 | [`plan_de_script_python.md`](plan_de_script_python.md) | Métricas y dataset solicitados para el monitor |
 | [`plan_implementacion_monitor.md`](plan_implementacion_monitor.md) | Diseño del monitor: sondas, SSH, CSV, fases y pruebas |
 | [`landing_pages_plan.md`](landing_pages_plan.md) | Requisitos de la landing del portal |
@@ -228,27 +267,26 @@ python3 -m unittest discover -s tests -v
 - **Solo biblioteca estándar** en Python; sin Flask, Django, pandas ni requests.
 - **Muestreo cada 5 minutos** y cierre diario a las 23:59; el CSV se reconstruye desde
   los JSONL.
-- **Dos VMs de servicio** (VM1 y VM2) y una VM de monitoreo.
+- **Dos VMs de servicio** (VM1 y VM2) y el monitor en VM1.
 - **NFS descartado** a favor de SSH de solo lectura.
 - **TLS en Apache**, no en Python; el backend escucha solo en loopback.
-- **Solo dataset** para Power BI; las medidas y gráficos los elabora otra persona.
+- **Power BI** consume el CSV; las medidas y la guía están en [`powerbi/`](powerbi/).
 - **Datos ficticios** en el portal; soporte, logo y colores son placeholders.
 
 ## 9. Límites conocidos
 
 - El portal usa SQLite y sesiones en memoria; reiniciar el servicio cierra sesiones.
 - El certificado de laboratorio es autofirmado.
-- El monitor real necesita acceso a VM1/VM2, clave SSH y snapshots publicados; la
-  muestra incluida es simulada.
-- QoS está deshabilitado por defecto porque genera tráfico.
-- La corrida simulada no demuestra carga concurrente de múltiples buques; para eso está
-  el histórico del monitor en el laboratorio.
+- **Cámaras VLAN 30:** no hay equipos en la red del aula; el módulo está deshabilitado.
+- **Asterisk 16** proviene de bullseye (bookworm lo retiró); es deuda técnica.
+- El primer **día completo** de dataset será el 2026-11-12.
+- Sin backups automáticos ni alertas si el monitor falla.
 
 ## 10. Siguientes pasos
 
-1. Desplegar el portal en VM2 con Apache y systemd.
-2. Desplegar la clave/wrapper en VM1 y VM2, activar `recoleccion.habilitado` y probar
-   `recolectar`.
-3. Programar el muestreo cada 5 minutos y el cierre de las 23:59.
-4. Acumular varios días de CSV y entregarlos al responsable de Power BI.
-5. Si se requiere, migrar la capa de datos del portal de SQLite a PostgreSQL.
+1. Dejar correr los timers y cerrar el primer día completo (288 JSONL) con `export`.
+2. Montar el tablero `.pbix` con [`powerbi/`](powerbi/) sobre el CSV real.
+3. Incorporar las cámaras de la VLAN 30 y activar el módulo.
+4. Añadir backups (`pg_dump`, `portal.db`, CSV) y una alerta cuando `run` devuelva 1 o 3.
+5. Sustituir el certificado autofirmado y fijar la IP (o usar DNS).
+6. Si el alcance lo pide, migrar la capa de datos del portal de SQLite a PostgreSQL.

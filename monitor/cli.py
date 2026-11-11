@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__
+from . import __version__, sondas
 from .config import cargar_config
 from .escritura import exportar_csv, podar
 from .recoleccion import recolectar
@@ -17,11 +18,39 @@ from .runner import ejecutar
 LOG = logging.getLogger("monitor")
 
 
+class _FormatoJSON(logging.Formatter):
+    """Una línea JSON por registro (``--json-logs``)."""
+
+    def format(self, registro: logging.LogRecord) -> str:
+        datos = {
+            "ts": datetime.fromtimestamp(registro.created).astimezone().isoformat(timespec="seconds"),
+            "nivel": registro.levelname,
+            "logger": registro.name,
+            "mensaje": registro.getMessage(),
+        }
+        if registro.exc_info:
+            datos["excepcion"] = self.formatException(registro.exc_info)
+        return json.dumps(datos, ensure_ascii=False)
+
+
 def _comun() -> argparse.ArgumentParser:
     base = argparse.ArgumentParser(add_help=False)
     base.add_argument("--config", default="monitor.toml", help="Ruta del TOML")
     base.add_argument("--verbose", action="store_true", help="Log detallado")
+    base.add_argument("--json-logs", action="store_true", help="Logs estructurados (una línea JSON)")
     return base
+
+
+def _configurar_logs(verbose: bool, json_logs: bool) -> None:
+    manejador = logging.StreamHandler()
+    if json_logs:
+        manejador.setFormatter(_FormatoJSON())
+    else:
+        manejador.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    raiz = logging.getLogger()
+    raiz.handlers.clear()
+    raiz.addHandler(manejador)
+    raiz.setLevel(logging.DEBUG if verbose else logging.INFO)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -47,16 +76,25 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("validate", parents=[comun], help="Valida configuración")
 
     args = parser.parse_args(argv)
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    _configurar_logs(args.verbose, args.json_logs)
     try:
         config = cargar_config(args.config)
     except (FileNotFoundError, ValueError, OSError) as exc:
         print(f"Configuración inválida: {exc}", file=sys.stderr)
         return 2
 
+    try:
+        return _despachar(args, config)
+    except KeyboardInterrupt:
+        print("Interrumpido por el usuario", file=sys.stderr)
+        return 3
+    except Exception as exc:  # noqa: BLE001 - código de salida 3 = fatal
+        LOG.exception("Fallo fatal")
+        print(f"Fallo fatal: {exc}", file=sys.stderr)
+        return 3
+
+
+def _despachar(args, config) -> int:
     if args.comando == "validate":
         print(f"OK {config.ruta}")
         print(f"Datos: {config.datos}")
@@ -64,6 +102,10 @@ def main(argv: list[str] | None = None) -> int:
             nombre for nombre in ("camaras", "portal", "base_datos", "voip", "qos", "seguridad", "dhcp")
             if config.modulo_habilitado(nombre)
         ))
+        print(f"Inventario: {len(config.inventario)} recursos "
+              f"({config.general.get('inventario')})")
+        reloj = sondas.ntp_sincronizado(min(config.timeout, 5.0))
+        print("NTP: " + {True: "sincronizado", False: "desincronizado", None: "desconocido"}[reloj])
         return 0
 
     if args.comando == "run":
@@ -89,7 +131,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.comando == "prune":
         eliminados = podar(config, args.dias or None)
-        print(f"Eliminados: {len(eliminados)}")
+        print(f"Eliminados/comprimidos: {len(eliminados)}")
+        for ruta in eliminados:
+            print(f"  {ruta}")
         return 0
 
     return 2
