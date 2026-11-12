@@ -318,6 +318,26 @@ def apache(ruta: str, frescura_s: float, run_id: str, zona: str) -> Resultado:
     return Resultado.crear(run_id, "PortalWeb", "Apache", estado, "archivo", zona, detalle=f"systemctl: {activo or 'sin salida'}")
 
 
+def leases_activos(texto: str) -> int:
+    """Cuenta IPs con arrendamiento activo, sin duplicar bloques repetidos.
+
+    ``dhcpd.leases`` acumula un bloque por renovación, así que contar la cadena
+    ``binding state active;`` infla el número; se deduplica por IP.
+    """
+    activos: set[str] = set()
+    actual: str | None = None
+    for linea in texto.splitlines():
+        coincidencia = re.match(r"\s*lease\s+(\S+)\s*\{", linea)
+        if coincidencia:
+            actual = coincidencia.group(1)
+            continue
+        if actual and "binding state active;" in linea:
+            activos.add(actual)
+        elif linea.strip() == "}":
+            actual = None
+    return len(activos)
+
+
 def dhcp(config: dict, frescura_s: float, run_id: str, zona: str) -> list[Resultado]:
     estado_texto, problema = leer_snapshot(config["estado"], frescura_s)
     if estado_texto is None:
@@ -325,9 +345,7 @@ def dhcp(config: dict, frescura_s: float, run_id: str, zona: str) -> list[Result
     lineas = [linea.strip() for linea in estado_texto.splitlines() if linea.strip()]
     activo = lineas[0].lower() if lineas else ""
     leases, error_leases = leer_snapshot(config["leases"], frescura_s)
-    activos = 0
-    if leases:
-        activos = leases.count("binding state active;")
+    activos = leases_activos(leases) if leases else 0
     estado = "OK" if activo == "active" else "ERROR"
     return [
         Resultado.crear(

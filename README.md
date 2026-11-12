@@ -9,7 +9,7 @@ QoS y seguridad con herramientas livianas, y cómo el portal puede mejorar la ex
 del cliente frente a los problemas originales: consultas superiores a 10 segundos,
 poca visibilidad de la carga y necesidad de controles de acceso.
 
-> **Estado:** monitor implementado y probado (**32 pruebas**), portal validado,
+> **Estado:** monitor implementado y probado (**34 pruebas**), portal validado,
 > documentación y artefactos de despliegue listos. Los datos del portal son ficticios.
 >
 > **Desplegado en dos VM** (red `192.168.100.0/24`, 2026-11-11):
@@ -144,7 +144,7 @@ se regenera con los comandos anteriores):
 - **14 filas**, 6 módulos, 27 columnas.
 - 2 cámaras, 2 filas de portal (HTTP + Apache), 1 base de datos, 5 VoIP (SIP + AMI + 3 CDR),
   3 eventos de seguridad y 1 DHCP.
-- Pruebas: **32/32 OK** en [`tests_monitor/`](tests_monitor/) (incluye sonda HTTP real,
+- Pruebas: **34/34 OK** en [`tests_monitor/`](tests_monitor/) (incluye sonda HTTP real,
   reintentos, señales, gzip e inventario).
 
 Para la operación real: activar `recoleccion.habilitado = true`, desplegar la clave y el
@@ -249,6 +249,7 @@ python3 -m unittest discover -s tests -v
 | Documento | Contenido |
 |---|---|
 | [`PENDIENTES.md`](PENDIENTES.md) | Estado del proyecto, evidencia y pendientes reales |
+| [`GUIA_PRUEBAS.md`](GUIA_PRUEBAS.md) | Guía paso a paso para probar Asterisk y los servicios de VM2 |
 | [`DESPLIEGUE_VM1.md`](DESPLIEGUE_VM1.md) | Monitor, Asterisk, QoS y portal de respaldo |
 | [`DESPLIEGUE_VM2.md`](DESPLIEGUE_VM2.md) | Portal, PostgreSQL, fail2ban, iptables y DHCP |
 | [`powerbi/README.md`](powerbi/README.md) | Carga del CSV, modelo y páginas del tablero |

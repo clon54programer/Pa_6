@@ -9,7 +9,7 @@ Estado al **2026-11-11**, segundo sprint, sobre la red `192.168.100.0/24`:
 
 > **Resumen:** la topología de dos VM ya existe y **todos los módulos del monitor miden
 > datos reales** (portal, base de datos, VoIP, QoS, seguridad y DHCP). La recolección SSH
-> funciona de punta a punta, la robustez del §11 está implementada y probada (32/32), y el
+> funciona de punta a punta, la robustez del §11 está implementada y probada (34/34), y el
 > dataset del día se está acumulando. Quedan fuera únicamente las **cámaras VLAN 30**
 > (no hay hardware) y el **día completo de 24 h** con su tablero `.pbix`.
 
@@ -55,9 +55,10 @@ Estado al **2026-11-11**, segundo sprint, sobre la red `192.168.100.0/24`:
 
 ### 1.4 Calidad
 
-- **32/32 pruebas** en Linux (`python3 -m unittest discover -s tests_monitor`), incluidas
+- **34/34 pruebas** en Linux (`python3 -m unittest discover -s tests_monitor`), incluidas
   las nuevas: sonda HTTP real con `ThreadingHTTPServer`, reintentos, deadline/sondas
-  interrumpidas, compresión `.gz` y lectura de inventario.
+  interrumpidas, compresión `.gz`, lectura de inventario y conteo de leases sin duplicar
+  renovaciones.
 - La sonda HTTP que provocó el bug de `http.client` en el primer sprint ya tiene prueba.
 
 ### 1.5 Entrega para Power BI
@@ -84,7 +85,11 @@ Estado al **2026-11-11**, segundo sprint, sobre la red `192.168.100.0/24`:
 | Servicios VM2 | `postgresql`, `fail2ban`, `isc-dhcp-server`, `apache2`, `portal`, `iperf3`, veth DHCP: **active** |
 | Seguridad | reglas VLAN con contadores, 1 ban de fail2ban y eventos `VLAN30_BLOCKED`/`VLAN40_BLOCKED` en el CSV |
 | Señales | `SIGTERM` a mitad de corrida → JSONL escrito, `interrumpida=si`, salida **1** |
-| Pruebas | **32/32 OK** |
+| Pruebas | **34/34 OK** |
+
+> Los conteos son de la hora indicada: el dataset sigue creciendo con cada muestra de 5
+> minutos y el CSV se reconstruye en el cierre de las 23:59. La guía para repetir cada
+> comprobación está en [`GUIA_PRUEBAS.md`](GUIA_PRUEBAS.md).
 
 ---
 
@@ -118,7 +123,7 @@ Estado al **2026-11-11**, segundo sprint, sobre la red `192.168.100.0/24`:
 | 4 | Snapshot sin actualizar → `STALE` | **Cumple** (cubierto por `leer_snapshot`) |
 | 5 | Releer `auth.log` no duplica eventos | **Cumple** (huella estable) |
 | 6 | Deltas de `iptables` suman lo esperado | **Cumple**: +5/+6/+4/+4 paquetes tras inyectar tráfico VLAN30/40 |
-| 7 | `unittest discover` sin red | **Cumple** (32/32 en Linux) |
+| 7 | `unittest discover` sin red | **Cumple** (34/34 en Linux) |
 | 8 | Solo stdlib en `monitor/` | **Cumple** (sin dependencias externas; `pyproject.toml` sin `requires`) |
 | 9 | Una hora de muestreo deja 12 JSONL | **En curso**: timers activos cada 5 min; 15 JSONL desde las 18:00 (incluye corridas manuales) |
 | 10 | README con configuración, programación, SSH, columnas y límites | **Cumple** (README, `monitor/README`, `DESPLIEGUE_VM1/VM2`) |
@@ -149,6 +154,20 @@ grep -c 'binding state active' /var/lib/dhcp/dhcpd.leases
 Scripts reproducibles en [`despliegue/diagnostico/`](despliegue/diagnostico/):
 `verificacion-vm1.sh`, `verificacion-vm2.sh`, `corrida-completa.sh`,
 `probar-recoleccion.sh`, `senales2.sh`, `generar-trafico-vlan.sh` y `ban-prueba.sh`.
+
+La guía paso a paso, con las salidas esperadas y la solución de problemas, está en
+[`GUIA_PRUEBAS.md`](GUIA_PRUEBAS.md):
+
+```bash
+# VM1 (Asterisk + monitor)
+bash /tmp/prueba-asterisk.sh
+
+# VM2 (portal, PostgreSQL, fail2ban, iptables, DHCP, iperf3 y recolección)
+bash /tmp/prueba-vm2.sh
+
+# desde el PC, portal por HTTPS
+python .\despliegue\diagnostico\portal-login.py
+```
 
 ---
 

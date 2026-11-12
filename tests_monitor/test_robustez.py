@@ -4,11 +4,29 @@ import unittest
 from datetime import date, timedelta
 from pathlib import Path
 
-from monitor import runner
+from monitor import runner, seguridad, sondas
 from monitor.config import cargar_config
 from monitor.escritura import exportar_csv, podar
 from monitor.modelos import Resultado
 from monitor.reintentos import intentar
+
+
+class LeasesTest(unittest.TestCase):
+    """Las renovaciones repiten el bloque del mismo IP; debe contarse una vez."""
+
+    TEXTO = (
+        "lease 10.30.60.100 {\n  binding state active;\n}\n"
+        "lease 10.30.60.100 {\n  binding state active;\n}\n"
+        "lease 10.30.60.101 {\n  binding state active;\n}\n"
+        "lease 10.30.60.102 {\n  binding state free;\n}\n"
+    )
+
+    def test_dedupe_por_ip(self):
+        self.assertEqual(sondas.leases_activos(self.TEXTO), 2)
+        self.assertEqual(seguridad.parse_leases(self.TEXTO), 2)
+
+    def test_sin_leases(self):
+        self.assertEqual(sondas.leases_activos("sin datos"), 0)
 
 
 class ReintentosTest(unittest.TestCase):

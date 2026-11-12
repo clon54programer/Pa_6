@@ -160,4 +160,16 @@ def parse_snmp(texto: str) -> dict[str, int]:
 
 
 def parse_leases(texto: str) -> int:
-    return texto.count("binding state active;")
+    """IPs con arrendamiento activo (deduplicadas por bloque de lease)."""
+    activos: set[str] = set()
+    actual: str | None = None
+    for linea in texto.splitlines():
+        coincidencia = re.match(r"\s*lease\s+(\S+)\s*\{", linea)
+        if coincidencia:
+            actual = coincidencia.group(1)
+            continue
+        if actual and "binding state active;" in linea:
+            activos.add(actual)
+        elif linea.strip() == "}":
+            actual = None
+    return len(activos)

@@ -173,7 +173,7 @@ Una muestra completa reciente dejó **39 filas, todas OK** (0 con problema).
 | DHCP | 1 lease activo (`10.30.60.100`) |
 | `export` dos veces | mismo SHA-256 (`88e77c47…b451ac`) |
 | JSONL del día | 19 archivos; 15 desde las 18:00 |
-| Pruebas | **32/32** en Linux |
+| Pruebas | **34/34** en Linux |
 | Señal `SIGTERM` | JSONL escrito y salida **1** |
 
 Scripts en [`despliegue/diagnostico/`](diagnostico/): `verificacion-vm1.sh`,

@@ -67,7 +67,7 @@ Ver [`config/ssh/`](../config/ssh) y [`despliegue/comun/recoleccion-vm.sh`](../d
 python3 -m unittest discover -s tests_monitor -v
 ```
 
-32 pruebas: parsers, HTTP real, reintentos, señales, `.gz`, inventario y `--simulate`.
+34 pruebas: parsers, HTTP real, reintentos, señales, `.gz`, inventario y `--simulate`.
 
 ## Estructura
 
