@@ -53,5 +53,6 @@ const API = (() => {
     track: (consulta) => pedir("/api/track?q=" + encodeURIComponent(consulta)),
     avisos: () => pedir("/api/avisos"),
     estado: () => pedir("/api/estado"),
+    tablero: () => pedir("/api/tablero"),
   };
 })();

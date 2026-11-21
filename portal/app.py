@@ -22,7 +22,11 @@ LOG = logging.getLogger("portal.app")
 
 CSP = (
     "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "
-    "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+    "connect-src 'self'; "
+    # El tablero es un iframe de Power BI; el inicio de sesión de Microsoft puede
+    # navegar dentro del mismo marco cuando el informe usa «Insertar informe».
+    "frame-src https://app.powerbi.com https://login.microsoftonline.com; "
+    "frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 )
 
 
@@ -83,6 +87,10 @@ class Manejador(BaseHTTPRequestHandler):
             self._json(200, self.app.api.sesion(sid))
             return
 
+        if metodo == "GET" and ruta == "/api/tablero":
+            self._json(200, self.app.api.tablero())
+            return
+
         if metodo == "GET" and ruta == "/api/track":
             valor = parse_qs(consulta).get("q", [""])[0]
             self._json(200, self.app.api.track(valor, sid))
@@ -110,6 +118,7 @@ class Manejador(BaseHTTPRequestHandler):
 
         if ruta in {
             "/api/sesion",
+            "/api/tablero",
             "/api/track",
             "/api/avisos",
             "/api/estado",

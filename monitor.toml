@@ -19,10 +19,10 @@ timeout_s = 15
 recolectar_antes = true
 
 [recoleccion.vm1]
-host = "192.168.100.60"
+host = "192.168.137.93"
 
 [recoleccion.vm2]
-host = "192.168.100.59"
+host = "192.168.137.8"
 
 [salida]
 csv = true
@@ -36,7 +36,7 @@ rtsp_puerto = 554
 
 [portal]
 habilitado = true
-url = "https://192.168.100.59/"
+url = "https://192.168.137.8/"
 timeout_s = 15
 umbral_degradado_s = 10.0
 verificar_tls = false
@@ -44,7 +44,7 @@ estado_apache = "data/entradas/vm2/apache.txt"
 
 [base_datos]
 habilitado = true
-host = "192.168.100.59"
+host = "192.168.137.8"
 puerto = 5432
 base = "portocaribe"
 usuario = "monitor"
@@ -52,7 +52,7 @@ pgpassfile = "/etc/monitor/pgpass"
 
 [voip]
 habilitado = true
-host = "192.168.100.60"
+host = "192.168.137.93"
 sip_puerto = 5060
 ami = true
 ami_puerto = 5038
@@ -62,7 +62,7 @@ cdr = "data/entradas/vm1/cdr.csv"
 
 [qos]
 habilitado = false
-servidor_iperf = "192.168.100.59"
+servidor_iperf = "192.168.137.8"
 duracion_s = 10
 ancho_banda = "20M"
 interfaz = "enp0s3"

@@ -1,6 +1,6 @@
 recurso,nombre,tipo,vlan,zona,puerto,criticidad,habilitado
-192.168.100.59,Portal_Clientes,web,50,core,443,alta,true
-192.168.100.59,PostgreSQL,db,50,core,5432,alta,true
-192.168.100.59,iperf3_QoS,qos,50,core,5201,media,true
-192.168.100.60,Asterisk,sip,60,core,5060,alta,true
-192.168.100.60,Monitor_Portocaribe,monitor,60,core,0,alta,true
+192.168.137.8,Portal_Clientes,web,50,core,443,alta,true
+192.168.137.8,PostgreSQL,db,50,core,5432,alta,true
+192.168.137.8,iperf3_QoS,qos,50,core,5201,media,true
+192.168.137.93,Asterisk,sip,60,core,5060,alta,true
+192.168.137.93,Monitor_Portocaribe,monitor,60,core,0,alta,true

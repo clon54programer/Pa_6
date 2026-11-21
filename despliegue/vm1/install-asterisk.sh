@@ -13,6 +13,7 @@ BASE="$(cd "$(dirname "$0")" && pwd)"
 SECRETOS=/etc/portocaribe-lab
 AMI_FILE=$SECRETOS/ami.secret
 SIP_FILE=$SECRETOS/sip_demo.secret
+SIP2_FILE=$SECRETOS/sip_demo2.secret
 
 paso() { printf '\n=== %s ===\n' "$*"; }
 
@@ -20,8 +21,10 @@ paso "1/5 Secretos de Asterisk"
 install -d -m 0700 "$SECRETOS"
 [ -s "$AMI_FILE" ] || { umask 077; openssl rand -hex 16 > "$AMI_FILE"; }
 [ -s "$SIP_FILE" ] || { umask 077; openssl rand -hex 8 > "$SIP_FILE"; }
+[ -s "$SIP2_FILE" ] || { umask 077; openssl rand -hex 8 > "$SIP2_FILE"; }
 AMI_SECRET="$(cat "$AMI_FILE")"
 SIP_SECRET="$(cat "$SIP_FILE")"
+SIP2_SECRET="$(cat "$SIP2_FILE")"
 
 install -d -m 0600 /etc/monitor
 cat > /etc/monitor/ami.env <<EOF
@@ -37,7 +40,8 @@ for archivo in manager.conf pjsip.conf extensions.conf; do
   fi
 done
 sed "s/__AMI_SECRET__/$AMI_SECRET/" "$BASE/asterisk/manager.conf" > /etc/asterisk/manager.conf
-sed "s/__SIP_SECRET__/$SIP_SECRET/" "$BASE/asterisk/pjsip.conf" > /etc/asterisk/pjsip.conf
+sed -e "s/__SIP_SECRET__/$SIP_SECRET/" -e "s/__SIP_SECRET2__/$SIP2_SECRET/" \
+  "$BASE/asterisk/pjsip.conf" > /etc/asterisk/pjsip.conf
 install -m 0644 "$BASE/asterisk/extensions.conf" /etc/asterisk/extensions.conf
 # Debian trae usegmtime=yes en [csv]: el CDR debe ir en hora local para que el
 # monitor pueda filtrar por el día y comparar con los logs de VM2.

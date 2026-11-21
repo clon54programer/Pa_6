@@ -1,11 +1,11 @@
 # Pendientes del proyecto PortoCaribe
 
-Estado al **2026-11-11**, segundo sprint, sobre la red `192.168.100.0/24`:
+Estado al **2026-11-21**, segundo sprint, sobre la red `192.168.137.0/24`:
 
 | Máquina | IP | Rol |
 |---|---|---|
-| **VM1** | `192.168.100.60` | monitor + Asterisk (SIP/AMI/CDR) + portal de respaldo + captura QoS |
-| **VM2** | `192.168.100.59` | portal principal (Apache/TLS) + PostgreSQL + fail2ban + iptables + DHCP |
+| **VM1** | `192.168.137.93` | monitor + Asterisk (SIP/AMI/CDR) + portal de respaldo + captura QoS |
+| **VM2** | `192.168.137.8` | portal principal (Apache/TLS) + PostgreSQL + fail2ban + iptables + DHCP |
 
 > **Resumen:** la topología de dos VM ya existe y **todos los módulos del monitor miden
 > datos reales** (portal, base de datos, VoIP, QoS, seguridad y DHCP). La recolección SSH
@@ -21,8 +21,8 @@ Estado al **2026-11-11**, segundo sprint, sobre la red `192.168.100.0/24`:
 
 | Pendiente anterior | Estado | Evidencia |
 |---|---|---|
-| **VM2** con portal secundario | **Hecho** | `https://192.168.100.59/` → `200`, TLS 1.3, SAN con la IP nueva |
-| **PostgreSQL** | **Hecho** | PostgreSQL 15.19, base `portocaribe`, rol `monitor`, `pg_hba` para `192.168.100.60/32`; `SELECT 1` desde VM1 |
+| **VM2** con portal secundario | **Hecho** | `https://192.168.137.8/` → `200`, TLS 1.3; certificado autofirmado (SAN por regenerar tras el cambio de red) |
+| **PostgreSQL** | **Hecho** | PostgreSQL 15.19, base `portocaribe`, rol `monitor`, `pg_hba` para `192.168.137.93/32`; `SELECT 1` desde VM1 |
 | **fail2ban** | **Hecho** | jails `sshd` y `apache-auth`; un ban real de `203.0.113.50` visible en `fail2ban-client status sshd` |
 | **iptables VLAN30/40** | **Hecho** | reglas `VLAN30-DROP:`/`VLAN40-DROP:` persistentes en `/etc/iptables/rules.v4`, con LOG al kernel y contadores |
 | **DHCP** | **Hecho** | `isc-dhcp-server` en `dummy0` (10.30.50.5/24) y un **arrendamiento real** `10.30.60.100` vía veth + netns (aislado de la red del aula) |
@@ -67,6 +67,11 @@ Estado al **2026-11-11**, segundo sprint, sobre la red `192.168.100.0/24`:
   Inventario), páginas sugeridas y refresco.
 - [`powerbi/medidas.dax`](powerbi/medidas.dax): disponibilidad, latencia P95, pérdida,
   jitter, bloqueos VLAN30/40, baneos, llamadas y frescura del dataset.
+- **Inserción en el portal:** sección `[tablero]` habilitada con el enlace público
+  (*Publicar en la web*) del informe; iframe validado en el servidor y
+  `frame-src https://app.powerbi.com` en la CSP. Guía en
+  [`powerbi/README.md`](powerbi/README.md) §6.
+
 
 ---
 
@@ -91,6 +96,28 @@ Estado al **2026-11-11**, segundo sprint, sobre la red `192.168.100.0/24`:
 > minutos y el CSV se reconstruye en el cierre de las 23:59. La guía para repetir cada
 > comprobación está en [`GUIA_PRUEBAS.md`](GUIA_PRUEBAS.md).
 
+### 2.1 Verificación tras la migración de red (2026-11-21)
+
+Al mover las VM a `192.168.137.0/24` se actualizaron `monitor.toml`, `inventario.csv`,
+`pgpass`, `known_hosts`, `pg_hba.conf`, `listen_addresses` y el `from=` de
+`authorized_keys`. Con esa configuración:
+
+| Comprobación | Resultado |
+|---|---|
+| Corrida completa del monitor | **28 filas, 28 OK, 0 con problema**, `rc=0` |
+| Corrida automática (timer 08:05) | **27 filas, 0 con problema** |
+| Suites | **34/34 monitor**, **47/47 portal** |
+| Portal principal y de respaldo | login `200`, búsqueda por contenedor/BL/orden, **3 avisos** |
+| Llamada real desde PC (MicroSIP) | `1001 -> 1000`, `ANSWERED`; el monitor la ve (5 filas VoIP) |
+| Segundo usuario SIP `1002` | Registro `200 OK`; dialplan `_1XXX` para llamadas 1001/1002 |
+| Re-registro de softphones | `remove_existing = yes` evita el `403` cuando la app cambia de puerto |
+| PostgreSQL remoto | `SELECT 1` → `1` |
+| fail2ban | ban y unban de `203.0.113.99` → 1 → 0 |
+| VLAN30/VLAN40 | contadores > 0 y filas `DROPPED` |
+| DHCP | 1 lease activo, `10.30.60.100` |
+| QoS | 3998/4000 paquetes con DSCP 46 |
+| `export` dos veces | mismo SHA-256 `1510bf4c…` → idempotente |
+
 ---
 
 ## 3. Lo que sigue pendiente
@@ -100,7 +127,7 @@ Estado al **2026-11-11**, segundo sprint, sobre la red `192.168.100.0/24`:
 | **Cámaras VLAN 30** | No hay cámaras ni VLAN 30 en la red del aula; `camaras.habilitado = false` | Conectar los equipos, poner sus IPs en `inventario.csv` y activar el módulo |
 | **Día completo (288 JSONL)** | El muestreo arrancó el 2026-11-11 a las 18:30; el primer día completo es el **2026-11-12** | Dejar correr los timers y ejecutar `export --fecha 2026-11-12` |
 | **Tablero `.pbix`** | El repo entrega medidas y guía; el binario se arma en Power BI Desktop | Montar el modelo con [`powerbi/`](powerbi/) sobre el CSV real |
-| **Certificado TLS** | Autofirmado (SAN con `192.168.100.59`/`.60`) | Sustituir por CA o dominio real |
+| **Certificado TLS** | Autofirmado; el SAN puede ser el de la red anterior | Regenerarlo con la IP actual o sustituirlo por una CA/dominio real |
 | **Backups** | Sin respaldo de `portal.db`, PostgreSQL ni el dataset | `pg_dump` diario + copia del CSV/JSONL |
 | **Alertas del monitor** | Si un timer falla solo queda el journal | Healthcheck/correo cuando `run` devuelva 1 o 3 |
 | **IP fija** | `enp0s3` sigue por DHCP; si cambia, el SAN y `known_hosts` dejan de cuadrar | Reserva DHCP o IP estática |
@@ -133,7 +160,7 @@ Estado al **2026-11-11**, segundo sprint, sobre la red `192.168.100.0/24`:
 ## 5. Cómo verificar cada bloque
 
 ```bash
-# VM1 (192.168.100.60), como root
+# VM1 (192.168.137.93), como root
 cd /opt/portocaribe-monitor
 runuser -u monitor -- python3 -m monitor validate --config /etc/monitor/monitor.toml
 runuser -u monitor -- env ASTERISK_AMI_SECRET="$(sed 's/.*=//' /etc/monitor/ami.env)" \
@@ -144,7 +171,7 @@ systemctl list-timers --all | grep portocaribe
 ```
 
 ```bash
-# VM2 (192.168.100.59), como root
+# VM2 (192.168.137.8), como root
 systemctl is-active postgresql fail2ban isc-dhcp-server apache2
 fail2ban-client status sshd
 iptables-save -c | grep -E 'VLAN(30|40)-DROP'
@@ -179,7 +206,7 @@ python .\despliegue\diagnostico\portal-login.py
   que [`despliegue/comun/apt-lab.sh`](despliegue/comun/apt-lab.sh) añade
   `deb.debian.org` y `security.debian.org` por HTTPS con pin de bullseye para Asterisk.
 - **DHCP aislado**: `isc-dhcp-server` escucha en `dummy0` (10.30.50.5/24) y en el veth
-  `10.30.60.1/24`; **nunca** en `192.168.100.0/24`, para no competir con el router del aula.
+  `10.30.60.1/24`; **nunca** en `192.168.137.0/24`, para no competir con el router del aula.
 - **Tráfico de prueba VLAN**: `generar-trafico-vlan.sh` envía paquetes con origen
   `10.30.30.12`/`10.30.40.77` a VM2 para ejercitar las reglas; es tráfico sintético de
   laboratorio, no una medición de cámaras reales.

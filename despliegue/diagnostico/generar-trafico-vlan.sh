@@ -17,9 +17,9 @@ def paquete(src, dst, puerto=9999):
 s = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
 s.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
 for _ in range(6):
-    s.sendto(paquete("10.30.30.12", "192.168.100.59"), ("192.168.100.59", 0))
+    s.sendto(paquete("10.30.30.12", "192.168.137.8"), ("192.168.137.8", 0))
 for _ in range(4):
-    s.sendto(paquete("10.30.40.77", "192.168.100.59"), ("192.168.100.59", 0))
+    s.sendto(paquete("10.30.40.77", "192.168.137.8"), ("192.168.137.8", 0))
 print("enviados 10 paquetes con origen VLAN30/VLAN40")
 PY
 sleep 1

@@ -1,6 +1,6 @@
 # Despliegue en VM2 — Portal, PostgreSQL, fail2ban, iptables y DHCP
 
-Guía del despliegue realizado el **2026-11-11** en `192.168.100.59` (Debian 12
+Guía del despliegue realizado el **2026-11-11** en `192.168.137.8` (Debian 12
 "bookworm", Python 3.11, PostgreSQL 15.19), dentro del segundo sprint del proyecto.
 
 > **Alcance.** VM2 es la máquina de servicios del caso: publica el **portal principal**
@@ -15,16 +15,17 @@ Guía del despliegue realizado el **2026-11-11** en `192.168.100.59` (Debian 12
 
 | Servicio | Puerto | Comprobación |
 |---|---|---|
-| Apache + portal (proxy a `127.0.0.1:8080`) | 80/443 | `https://192.168.100.59/` → **200**, TLS 1.3 |
-| PostgreSQL 15 | 5432 (solo `192.168.100.59` y loopback) | base `portocaribe`, rol `monitor`, `SELECT 1` desde VM1 |
+| Apache + portal (proxy a `127.0.0.1:8080`) | 80/443 | `https://192.168.137.8/` → **200**, TLS 1.3 |
+| PostgreSQL 15 | 5432 (solo `192.168.137.8` y loopback) | base `portocaribe`, rol `monitor`, `SELECT 1` desde VM1 |
 | fail2ban | — | jails `sshd` y `apache-auth`; ban real de `203.0.113.50` |
 | iptables (`netfilter-persistent`) | — | reglas VLAN persistidas en `/etc/iptables/rules.v4` |
 | isc-dhcp-server | 67/udp en `dummy0` y `veth-dhcp` | arrendamiento real `10.30.60.100` |
 | iperf3 | 5201 | servidor del módulo QoS |
 | Recolección SSH | 22 | usuario `monitor` con wrapper y `sudoers` |
 
-Certificado TLS autofirmado con SAN `portal.portocaribe.local`, `localhost`,
-`127.0.0.1` y **`192.168.100.59`**.
+Certificado TLS autofirmado. El certificado desplegado puede conservar el SAN de la red
+anterior; el instalador lo regenera si el SAN no incluye `192.168.137.8` (paso 6). El
+monitor no verifica TLS, así que las pruebas no dependen de este detalle.
 
 ---
 
@@ -55,8 +56,8 @@ Los artefactos viven en [`despliegue/vm2/`](vm2/) y los comparte con VM1
 ```bash
 # desde el equipo de trabajo
 tar czf pa6.tgz despliegue monitor portal tests_monitor inventario.csv monitor.toml
-scp pa6.tgz vboxuser@192.168.100.59:/tmp/
-ssh vboxuser@192.168.100.59
+scp pa6.tgz vboxuser@192.168.137.8:/tmp/
+ssh vboxuser@192.168.137.8
 mkdir -p /tmp/pa6desp && tar xzf /tmp/pa6.tgz -C /tmp/pa6desp
 su -                     # root (la contraseña del aula)
 bash /tmp/pa6desp/despliegue/vm2/packages.sh   # repos de red + paquetes
@@ -70,14 +71,14 @@ bash /tmp/pa6desp/despliegue/vm2/install.sh    # servicios y configuración
 El instalador de VM2:
 
 1. Crea el rol `monitor` con contraseña aleatoria, la base `portocaribe`, ajusta
-   `listen_addresses` y `pg_hba` para `192.168.100.60/32`.
+   `listen_addresses` y `pg_hba` para `192.168.137.93/32`.
 2. Instala `jail.local` y habilita fail2ban.
 3. Carga `rules.v4` con `iptables-restore`, persiste con `netfilter-persistent` y añade
    `iptables-persistent` para el arranque.
 4. Crea `dummy0` (10.30.50.5/24), el veth `10.30.60.1/24` con un cliente DHCP en el
    namespace `clientes`, y sirve DHCP en ambas interfaces.
 5. Habilita el servidor iperf3.
-6. Regenera el certificado si el SAN no incluye `192.168.100.59` y reinicia Apache.
+6. Regenera el certificado si el SAN no incluye `192.168.137.8` y reinicia Apache.
 7. Instala la recolección SSH con [`comun/recoleccion-vm.sh`](comun/recoleccion-vm.sh)
    (necesita `/tmp/monitor_key.pub`, la clave pública que genera VM1).
 

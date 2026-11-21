@@ -369,6 +369,30 @@ input:focus {
   scroll-margin-top: 20px;
 }
 
+.tablero {
+  scroll-margin-top: 20px;
+}
+
+.tablero-marco {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  min-height: 380px;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--superficie);
+  box-shadow: var(--sombra);
+  overflow: hidden;
+}
+
+.tablero-marco iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--superficie);
+}
+
 .buscador {
   display: flex;
   gap: 12px;

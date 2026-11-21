@@ -112,6 +112,9 @@ portal/
   20 fallos por IP en la misma ventana.
 - Cabeceras CSP, HSTS (Apache), `nosniff`, `X-Frame-Options`, `Referrer-Policy` y
   `Permissions-Policy`.
+- `frame-src` limitado a `https://app.powerbi.com` y al inicio de sesión de Microsoft
+  para el tablero; el portal sigue enviando `frame-ancestors 'none'` y
+  `X-Frame-Options: DENY`.
 - Cuerpo máximo de 16 KB, rutas estáticas confinadas a `portal/web/`, SQL parametrizado.
 - Logs sin contraseñas.
 
@@ -125,9 +128,33 @@ portal/
 | `GET` | `/api/track?q=` | Contenedor, BL u orden |
 | `GET` | `/api/avisos` | Avisos vigentes |
 | `GET` | `/api/estado` | Latencia propia y umbral |
+| `GET` | `/api/tablero` | Enlace de inserción de Power BI (o `habilitado: false`) |
 
 El widget de rendimiento mide el servidor con `perf_counter` y el navegador con
 `performance.now`; no depende del monitor. El CSV del monitor queda para el informe.
+
+## Tablero de Power BI
+
+La sección **Tablero de infraestructura** inserta el informe publicado en Power BI con un
+`<iframe>`. Se configura en `[tablero]`:
+
+```toml
+[tablero]
+habilitado = true
+url = "https://app.powerbi.com/reportEmbed?reportId=…&autoAuth=true"
+```
+
+- Solo se aceptan enlaces `https://app.powerbi.com/reportEmbed…` (insertar informe) y
+  `https://app.powerbi.com/view…` (publicar en la web); la URL del editor
+  (`/groups/me/reports/…`) se rechaza porque no se puede enmarcar.
+- La CSP incluye `frame-src https://app.powerbi.com` y mantiene `frame-ancestors 'none'`
+  para el propio portal.
+- El endpoint `/api/tablero` no exige sesión: quien controla el acceso al informe es
+  Power BI, no el portal. Si el informe se publica en la web, queda público.
+- Si el iframe no carga, el enlace «Abrir en Power BI» abre el informe en una pestaña
+  nueva. Los requisitos de cada forma de inserción están en
+  [`powerbi/README.md`](../powerbi/README.md) §6.
+
 
 ## Límites conocidos
 

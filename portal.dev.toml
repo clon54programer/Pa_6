@@ -20,3 +20,13 @@ intentos_maximos_ip = 20
 
 [rendimiento]
 umbral_degradado_ms = 10000
+
+[tablero]
+# Informe de Power BI insertado en la página. Modo activo: «Publicar en la web»
+# (público, sin cuenta de Power BI; funciona también con el portal en HTTP local).
+#   · Público:          url = "https://app.powerbi.com/view?r=..."
+#   · Embed seguro:     url = "https://app.powerbi.com/reportEmbed?reportId=...&autoAuth=true"
+#     (requiere HTTPS en la página y cuenta con permiso en Power BI)
+# La URL del editor (/groups/me/reports/...) no se puede insertar.
+habilitado = true
+url = "https://app.powerbi.com/view?r=eyJrIjoiYjJlMDQ1NjMtNDlmYi00NDgyLTg2YzYtMzcyNmZlNmM2OWM0IiwidCI6IjlkMTJiZjNmLWU0ZjYtNDdhYi05MTJmLTFhMmYwZmM0OGFhNCIsImMiOjR9"

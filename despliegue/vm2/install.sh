@@ -1,6 +1,6 @@
 #!/bin/bash
 # ---------------------------------------------------------------------------
-# Instalador PortoCaribe para VM2 (192.168.100.59)
+# Instalador PortoCaribe para VM2 (192.168.137.8)
 #
 #   PostgreSQL 15        -> base portocaribe, rol monitor (solo SELECT 1)
 #   fail2ban             -> jails sshd y apache-auth
@@ -11,7 +11,7 @@
 #   Recolección SSH      -> usuario monitor + wrapper + sudoers
 #
 # Uso (como root):
-#   IP_VM1=192.168.100.60 bash despliegue/vm2/install.sh [RAIZ]
+#   IP_VM1=192.168.137.93 bash despliegue/vm2/install.sh [RAIZ]
 # ---------------------------------------------------------------------------
 set -euo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -21,8 +21,8 @@ export PAGER=cat PSQL_PAGER=cat PGPAGER=cat SYSTEMD_PAGER=cat
 
 BASE="$(cd "$(dirname "$0")" && pwd)"
 RAIZ="$(cd "${1:-$BASE/../..}" && pwd)"
-IP_VM1="${IP_VM1:-192.168.100.60}"
-IP_VM2="${IP_VM2:-192.168.100.59}"
+IP_VM1="${IP_VM1:-192.168.137.93}"
+IP_VM2="${IP_VM2:-192.168.137.8}"
 SECRETOS=/etc/portocaribe-lab
 PGPASS_FILE=$SECRETOS/pg_monitor.pass
 SSL_DIR=/etc/apache2/ssl

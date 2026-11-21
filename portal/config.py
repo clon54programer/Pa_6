@@ -5,6 +5,7 @@ from __future__ import annotations
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
@@ -39,11 +40,18 @@ class ConfigRendimiento:
 
 
 @dataclass(frozen=True)
+class ConfigTablero:
+    habilitado: bool
+    url: str
+
+
+@dataclass(frozen=True)
 class Config:
     servidor: ConfigServidor
     portal: ConfigPortal
     seguridad: ConfigSeguridad
     rendimiento: ConfigRendimiento
+    tablero: ConfigTablero
     ruta: Path
 
 
@@ -74,6 +82,38 @@ def _decimal(valor: object, nombre: str, minimo: float) -> float:
     if numero < minimo:
         raise ValueError(f"{nombre} debe ser mayor o igual a {minimo}")
     return numero
+
+
+def _url_tablero(valor: str, nombre: str) -> str:
+    """Acepta solo enlaces de inserción de Power BI (no la URL del editor)."""
+
+    try:
+        partes = urlsplit(valor)
+        puerto = partes.port
+    except ValueError as exc:
+        raise ValueError(f"{nombre} no es una URL válida") from exc
+
+    if partes.scheme != "https" or partes.hostname != "app.powerbi.com" or puerto not in (None, 443):
+        raise ValueError(
+            f"{nombre} debe ser una URL https://app.powerbi.com/… (embed seguro o Publicar en la web)"
+        )
+    if partes.username or partes.password:
+        raise ValueError(f"{nombre} no admite credenciales incrustadas")
+    if partes.path not in ("/reportEmbed", "/view"):
+        raise ValueError(
+            f"{nombre} debe usar /reportEmbed (insertar informe) o /view (publicar en la web); "
+            "la URL del editor /groups/…/reports/… no se puede insertar"
+        )
+
+    consulta = parse_qs(partes.query)
+    if partes.path == "/reportEmbed" and not consulta.get("reportId"):
+        raise ValueError(f"{nombre} debe incluir el parámetro reportId")
+    if partes.path == "/view" and not consulta.get("r"):
+        raise ValueError(f"{nombre} debe incluir el parámetro r")
+    if len(valor) > 2048:
+        raise ValueError(f"{nombre} supera los 2048 caracteres")
+
+    return valor
 
 
 def cargar_config(ruta: str | Path) -> Config:
@@ -130,6 +170,20 @@ def cargar_config(ruta: str | Path) -> Config:
 
     umbral = _decimal(rendimiento.get("umbral_degradado_ms", 10000), "rendimiento.umbral_degradado_ms", 1)
 
+    tablero = datos.get("tablero", {})
+    if not isinstance(tablero, dict):
+        raise ValueError("La sección [tablero] debe ser una tabla TOML")
+
+    tablero_habilitado = _booleano(tablero.get("habilitado", False), "tablero.habilitado")
+    tablero_url = tablero.get("url", "")
+    if not isinstance(tablero_url, str):
+        raise ValueError("tablero.url debe ser texto")
+    tablero_url = tablero_url.strip()
+    if tablero_url:
+        tablero_url = _url_tablero(tablero_url, "tablero.url")
+    if tablero_habilitado and not tablero_url:
+        raise ValueError("tablero.url es obligatoria cuando tablero.habilitado = true")
+
     return Config(
         servidor=ConfigServidor(
             host=host,
@@ -151,5 +205,6 @@ def cargar_config(ruta: str | Path) -> Config:
             intentos_maximos_ip=intentos_ip,
         ),
         rendimiento=ConfigRendimiento(umbral_degradado_ms=umbral),
+        tablero=ConfigTablero(habilitado=tablero_habilitado, url=tablero_url),
         ruta=archivo,
     )

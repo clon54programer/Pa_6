@@ -1,0 +1,1283 @@
+From 1d2b33b343979acc0a0955d6ec943eefc2914a89 Mon Sep 17 00:00:00 2001
+From: Naikel <naikelcarolinajarabarodriguez@gmail.com>
+Date: Sat, 21 Nov 2026 08:13:18 -0500
+Subject: [PATCH] Actualiza la red del laboratorio a 192.168.137.0/24 y agrega
+ guia de uso
+
+---
+ DESPLIEGUE_VM1.md                             |  28 +-
+ DESPLIEGUE_VM2.md                             |  19 +-
+ GUIA_PRUEBAS.md                               |  46 +-
+ GUIA_USO.md                                   | 544 ++++++++++++++++++
+ PENDIENTES.md                                 |  37 +-
+ README.md                                     |  17 +-
+ despliegue/diagnostico/corrida-completa.sh    |   2 +-
+ .../diagnostico/generar-trafico-vlan.sh       |   4 +-
+ despliegue/diagnostico/portal-login.py        |   2 +-
+ despliegue/diagnostico/probar-recoleccion.sh  |   2 +-
+ despliegue/diagnostico/prueba-vm2.sh          |   2 +-
+ despliegue/vm1/etc/monitor.toml               |  14 +-
+ despliegue/vm1/install.sh                     |   2 +-
+ despliegue/vm1/postconfig.sh                  |   2 +-
+ despliegue/vm2/etc/dhcp/dhcpd.conf            |   2 +-
+ despliegue/vm2/install.sh                     |   8 +-
+ inventario.csv                                |  10 +-
+ monitor.toml                                  |  12 +-
+ 18 files changed, 664 insertions(+), 89 deletions(-)
+ create mode 100644 GUIA_USO.md
+
+diff --git a/DESPLIEGUE_VM1.md b/DESPLIEGUE_VM1.md
+index c635af2..40324af 100644
+--- a/DESPLIEGUE_VM1.md
++++ b/DESPLIEGUE_VM1.md
+@@ -1,12 +1,12 @@
+ # Despliegue en VM1 — Monitor, Asterisk y portal de respaldo
+ 
+-Guía de la máquina `192.168.100.60` (Debian 12 "bookworm", Python 3.11.2). El despliegue
++Guía de la máquina `192.168.137.93` (Debian 12 "bookworm", Python 3.11.2). El despliegue
+ inicial del portal y del monitor fue el **2026-11-07**; el **2026-11-11** se actualizó a la
+ red del segundo sprint y se añadieron Asterisk, la recolección SSH y la captura de QoS.
+ 
+ > **Alcance.** VM1 ejecuta el **monitor**, el **Asterisk** del caso (SIP/AMI/CDR) y
+ > conserva un **portal de respaldo** con Apache/TLS. El portal principal y los servicios
+-> de seguridad viven en [VM2](DESPLIEGUE_VM2.md) (`192.168.100.59`).
++> de seguridad viven en [VM2](DESPLIEGUE_VM2.md) (`192.168.137.8`).
+ 
+ ---
+ 
+@@ -18,12 +18,15 @@ red del segundo sprint y se añadieron Asterisk, la recolección SSH y la captur
+ | **Cierre diario del CSV** | — | `portocaribe-cierre.timer` a las 23:59 |
+ | **Captura DSCP** | — | `portocaribe-qos-captura.timer` cada 5 min (tcpdump UDP/5201) |
+ | **Asterisk** | SIP `5060/udp`, AMI `127.0.0.1:5038` | `asterisk.service` |
+-| **Portal de respaldo** | `https://192.168.100.60/` | `portal.service` + Apache `:443` |
++| **Portal de respaldo** | `https://192.168.137.93/` | `portal.service` + Apache `:443` |
+ | **Recolección SSH** | hacia VM2 en cada muestra | clave `monitor` + wrapper cerrado |
+ 
+ Credenciales demo del portal: **`cliente.demo` / `Porto2026*`**.
+-El certificado TLS es autofirmado (SAN con `portal.portocaribe.local`, `localhost`,
+-`127.0.0.1` y `192.168.100.60`).
++El certificado TLS es autofirmado. El certificado que quedó desplegado se generó para
++la red anterior, así que su SAN puede no incluir `192.168.137.93`; el monitor no verifica
++TLS (`verificar_tls = false`), por lo que esto no afecta las pruebas. Para regenerarlo con
++la IP actual, ejecuta el bloque de certificado de [`despliegue/vm1/install.sh`](despliegue/vm1/install.sh)
++y recarga Apache.
+ 
+ El secreto AMI **no está en el TOML ni en el repositorio**: se genera en
+ `/etc/monitor/ami.env` (600, root) y `portocaribe-monitor.service` lo carga con
+@@ -72,8 +75,8 @@ despliegue/vm1/
+ ```bash
+ # desde el equipo de trabajo
+ tar czf pa6.tgz despliegue monitor portal tests_monitor inventario.csv monitor.toml
+-scp pa6.tgz vboxuser@192.168.100.60:/tmp/
+-ssh vboxuser@192.168.100.60
++scp pa6.tgz vboxuser@192.168.137.93:/tmp/
++ssh vboxuser@192.168.137.93
+ mkdir -p /tmp/pa6desp && tar xzf /tmp/pa6.tgz -C /tmp/pa6desp
+ su -
+ bash /tmp/pa6desp/despliegue/vm1/packages.sh       # repos de red + paquetes
+@@ -136,8 +139,8 @@ JSON por registro.
+ Traer datos al PC:
+ 
+ ```powershell
+-scp vboxuser@192.168.100.60:/var/lib/portocaribe-monitor/datos/csv/metricas_2026-11-11.csv .
+-scp -r vboxuser@192.168.100.60:/var/lib/portocaribe-monitor/datos/raw/2026-11-11 .
++scp vboxuser@192.168.137.93:/var/lib/portocaribe-monitor/datos/csv/metricas_2026-11-11.csv .
++scp -r vboxuser@192.168.137.93:/var/lib/portocaribe-monitor/datos/raw/2026-11-11 .
+ ```
+ 
+ ---
+@@ -146,7 +149,7 @@ scp -r vboxuser@192.168.100.60:/var/lib/portocaribe-monitor/datos/raw/2026-11-11
+ 
+ | Módulo | Estado | Fuente |
+ |---|---|---|
+-| **PortalWeb** | activo | HTTPS a `https://192.168.100.59/` + snapshot de Apache de VM2 |
++| **PortalWeb** | activo | HTTPS a `https://192.168.137.8/` + snapshot de Apache de VM2 |
+ | **Base de datos** | activo | TCP 5432 + `psql SELECT 1` contra VM2 |
+ | **VoIP** | activo | SIP OPTIONS 5060, AMI 5038 y CDR local |
+ | **QoS** | activo | `iperf3` UDP 20M con DSCP EF contra VM2 + pcap |
+@@ -154,7 +157,8 @@ scp -r vboxuser@192.168.100.60:/var/lib/portocaribe-monitor/datos/raw/2026-11-11
+ | **DHCP** | activo | snapshots de VM2 (estado y leases) |
+ | **Cámaras** | deshabilitado | no hay cámaras/VLAN 30 en la red del aula |
+ 
+-Una muestra completa reciente dejó **39 filas, todas OK** (0 con problema).
++Una muestra completa reciente dejó **28 filas, todas OK** (0 con problema); con más
++llamadas y eventos de seguridad el total sube hasta 39.
+ 
+ ---
+ 
+@@ -163,7 +167,7 @@ Una muestra completa reciente dejó **39 filas, todas OK** (0 con problema).
+ | Comprobación | Resultado |
+ |---|---|
+ | `portal`, `apache2`, `asterisk`, timers | `active` |
+-| `https://192.168.100.59/` desde VM1 | `200`, TLS 1.3 |
++| `https://192.168.137.8/` desde VM1 | `200`, TLS 1.3 |
+ | `psql SELECT 1` como `monitor` | OK (PostgreSQL 15.19) |
+ | SIP OPTIONS | `401` (Asterisk responde) |
+ | AMI `CoreShowChannels` | OK, 0 canales |
+diff --git a/DESPLIEGUE_VM2.md b/DESPLIEGUE_VM2.md
+index 0a1319b..bf9f5ee 100644
+--- a/DESPLIEGUE_VM2.md
++++ b/DESPLIEGUE_VM2.md
+@@ -1,6 +1,6 @@
+ # Despliegue en VM2 — Portal, PostgreSQL, fail2ban, iptables y DHCP
+ 
+-Guía del despliegue realizado el **2026-11-11** en `192.168.100.59` (Debian 12
++Guía del despliegue realizado el **2026-11-11** en `192.168.137.8` (Debian 12
+ "bookworm", Python 3.11, PostgreSQL 15.19), dentro del segundo sprint del proyecto.
+ 
+ > **Alcance.** VM2 es la máquina de servicios del caso: publica el **portal principal**
+@@ -15,16 +15,17 @@ Guía del despliegue realizado el **2026-11-11** en `192.168.100.59` (Debian 12
+ 
+ | Servicio | Puerto | Comprobación |
+ |---|---|---|
+-| Apache + portal (proxy a `127.0.0.1:8080`) | 80/443 | `https://192.168.100.59/` → **200**, TLS 1.3 |
+-| PostgreSQL 15 | 5432 (solo `192.168.100.59` y loopback) | base `portocaribe`, rol `monitor`, `SELECT 1` desde VM1 |
++| Apache + portal (proxy a `127.0.0.1:8080`) | 80/443 | `https://192.168.137.8/` → **200**, TLS 1.3 |
++| PostgreSQL 15 | 5432 (solo `192.168.137.8` y loopback) | base `portocaribe`, rol `monitor`, `SELECT 1` desde VM1 |
+ | fail2ban | — | jails `sshd` y `apache-auth`; ban real de `203.0.113.50` |
+ | iptables (`netfilter-persistent`) | — | reglas VLAN persistidas en `/etc/iptables/rules.v4` |
+ | isc-dhcp-server | 67/udp en `dummy0` y `veth-dhcp` | arrendamiento real `10.30.60.100` |
+ | iperf3 | 5201 | servidor del módulo QoS |
+ | Recolección SSH | 22 | usuario `monitor` con wrapper y `sudoers` |
+ 
+-Certificado TLS autofirmado con SAN `portal.portocaribe.local`, `localhost`,
+-`127.0.0.1` y **`192.168.100.59`**.
++Certificado TLS autofirmado. El certificado desplegado puede conservar el SAN de la red
++anterior; el instalador lo regenera si el SAN no incluye `192.168.137.8` (paso 6). El
++monitor no verifica TLS, así que las pruebas no dependen de este detalle.
+ 
+ ---
+ 
+@@ -55,8 +56,8 @@ Los artefactos viven en [`despliegue/vm2/`](vm2/) y los comparte con VM1
+ ```bash
+ # desde el equipo de trabajo
+ tar czf pa6.tgz despliegue monitor portal tests_monitor inventario.csv monitor.toml
+-scp pa6.tgz vboxuser@192.168.100.59:/tmp/
+-ssh vboxuser@192.168.100.59
++scp pa6.tgz vboxuser@192.168.137.8:/tmp/
++ssh vboxuser@192.168.137.8
+ mkdir -p /tmp/pa6desp && tar xzf /tmp/pa6.tgz -C /tmp/pa6desp
+ su -                     # root (la contraseña del aula)
+ bash /tmp/pa6desp/despliegue/vm2/packages.sh   # repos de red + paquetes
+@@ -70,14 +71,14 @@ bash /tmp/pa6desp/despliegue/vm2/install.sh    # servicios y configuración
+ El instalador de VM2:
+ 
+ 1. Crea el rol `monitor` con contraseña aleatoria, la base `portocaribe`, ajusta
+-   `listen_addresses` y `pg_hba` para `192.168.100.60/32`.
++   `listen_addresses` y `pg_hba` para `192.168.137.93/32`.
+ 2. Instala `jail.local` y habilita fail2ban.
+ 3. Carga `rules.v4` con `iptables-restore`, persiste con `netfilter-persistent` y añade
+    `iptables-persistent` para el arranque.
+ 4. Crea `dummy0` (10.30.50.5/24), el veth `10.30.60.1/24` con un cliente DHCP en el
+    namespace `clientes`, y sirve DHCP en ambas interfaces.
+ 5. Habilita el servidor iperf3.
+-6. Regenera el certificado si el SAN no incluye `192.168.100.59` y reinicia Apache.
++6. Regenera el certificado si el SAN no incluye `192.168.137.8` y reinicia Apache.
+ 7. Instala la recolección SSH con [`comun/recoleccion-vm.sh`](comun/recoleccion-vm.sh)
+    (necesita `/tmp/monitor_key.pub`, la clave pública que genera VM1).
+ 
+diff --git a/GUIA_PRUEBAS.md b/GUIA_PRUEBAS.md
+index f37fe8f..6fe94f7 100644
+--- a/GUIA_PRUEBAS.md
++++ b/GUIA_PRUEBAS.md
+@@ -4,11 +4,15 @@ Guía práctica para comprobar, de punta a punta, lo desplegado en el segundo sp
+ 
+ | Máquina | IP | Qué se prueba |
+ |---|---|---|
+-| **VM1** | `192.168.100.60` | Asterisk: SIP 5060, AMI 5038, CDR, llamadas y filas VoIP del monitor |
+-| **VM2** | `192.168.100.59` | portal TLS, PostgreSQL, fail2ban, iptables VLAN30/40, DHCP, iperf3 y recolección SSH |
++| **VM1** | `192.168.137.93` | Asterisk: SIP 5060, AMI 5038, CDR, llamadas y filas VoIP del monitor |
++| **VM2** | `192.168.137.8` | portal TLS, PostgreSQL, fail2ban, iptables VLAN30/40, DHCP, iperf3 y recolección SSH |
+ 
+ Las salidas que aparecen en cada paso son las obtenidas en el laboratorio el
+-**2026-11-11**; los valores concretos (IPs, puertos, contadores, fechas) pueden variar.
++**2026-11-11**; los valores concretos (puertos, contadores, fechas) pueden variar.
++
++> **Red actual:** `192.168.137.0/24`; las IPs de esta guía ya están actualizadas.
++> Lo importante es el estado (`OK`, `active`, `con_problema=0`), no los contadores exactos.
++> Para la operación diaria y el mantenimiento, usa [`GUIA_USO.md`](GUIA_USO.md).
+ 
+ ---
+ 
+@@ -19,8 +23,8 @@ Las salidas que aparecen en cada paso son las obtenidas en el laboratorio el
+ Desde el PC (PowerShell), con el usuario de laboratorio:
+ 
+ ```powershell
+-ssh vboxuser@192.168.100.60     # VM1
+-ssh vboxuser@192.168.100.59     # VM2
++ssh vboxuser@192.168.137.93     # VM1
++ssh vboxuser@192.168.137.8     # VM2
+ ```
+ 
+ Dentro de la VM, las tareas de root se hacen con `su -` y la contraseña del aula
+@@ -44,10 +48,10 @@ red (nada de carpetas compartidas de VirtualBox):
+ # VM1: los que se usan en esta guía
+ $vm1 = "prueba-asterisk.sh","corrida-completa.sh","ver-jsonl.sh","export-idempotente.sh",
+        "senales2.sh","probar-dhcp.sh","generar-trafico-vlan.sh"
+-foreach ($s in $vm1) { scp ".\despliegue\diagnostico\$s" vboxuser@192.168.100.60:/tmp/ }
++foreach ($s in $vm1) { scp ".\despliegue\diagnostico\$s" vboxuser@192.168.137.93:/tmp/ }
+ 
+ # VM2
+-scp .\despliegue\diagnostico\prueba-vm2.sh vboxuser@192.168.100.59:/tmp/
++scp .\despliegue\diagnostico\prueba-vm2.sh vboxuser@192.168.137.8:/tmp/
+ ```
+ 
+ Y se ejecutan como root:
+@@ -66,7 +70,7 @@ el navegador; `Invoke-WebRequest` de PowerShell tampoco valida el certificado au
+ 
+ ---
+ 
+-## 1. Asterisk en VM1 (`192.168.100.60`)
++## 1. Asterisk en VM1 (`192.168.137.93`)
+ 
+ El script completo es [`prueba-asterisk.sh`](despliegue/diagnostico/prueba-asterisk.sh);
+ abajo se explica cada paso para poder hacerlo a mano.
+@@ -231,7 +235,7 @@ PY
+ 
+ ---
+ 
+-## 2. Servicios de VM2 (`192.168.100.59`)
++## 2. Servicios de VM2 (`192.168.137.8`)
+ 
+ El script completo es [`prueba-vm2.sh`](despliegue/diagnostico/prueba-vm2.sh). Cada bloque
+ se puede ejecutar por separado.
+@@ -261,7 +265,7 @@ cookie       -> sid=<valor> (Secure)
+ GET /api/estado -> 200 {"estado": "OK", "latencia_ms": 0.23, ...}
+ ```
+ 
+-También sirve abrir `https://192.168.100.59/` en el navegador y entrar con
++También sirve abrir `https://192.168.137.8/` en el navegador y entrar con
+ `cliente.demo` / `Porto2026*` (el aviso de certificado es esperado: es autofirmado).
+ 
+ **Desde VM2** (sin salir de la máquina):
+@@ -284,14 +288,14 @@ grep '^host portocaribe' /etc/postgresql/15/main/pg_hba.conf
+ ```
+ 
+ Esperado: `portocaribe`, `1` y las dos líneas de `pg_hba` (una para
+-`192.168.100.60/32` y otra para `127.0.0.1/32`).
++`192.168.137.93/32` y otra para `127.0.0.1/32`).
+ 
+ La prueba que hace el monitor es remota, desde VM1 y como usuario `monitor`:
+ 
+ ```bash
+ # en VM1
+ runuser -u monitor -- env PGPASSFILE=/etc/monitor/pgpass \
+-  psql -w -tAc "SELECT 1" -h 192.168.100.59 -p 5432 -U monitor -d portocaribe
++  psql -w -tAc "SELECT 1" -h 192.168.137.8 -p 5432 -U monitor -d portocaribe
+ ```
+ 
+ Esperado: `1`. La contraseña del rol está en `/etc/portocaribe-lab/pg_monitor.pass`
+@@ -395,7 +399,7 @@ veth-cli@if5     UP             10.30.60.100/24
+ > deduplica por IP (por eso reporta `1 leases activos`).
+ 
+ El servidor DHCP escucha solo en `dummy0` (10.30.50.5/24) y `veth-dhcp`
+-(10.30.60.1/24), **nunca** en `192.168.100.0/24`.
++(10.30.60.1/24), **nunca** en `192.168.137.0/24`.
+ 
+ ### 2.7 iperf3 (QoS)
+ 
+@@ -408,7 +412,7 @@ ss -lntp | grep ':5201'
+ Prueba real desde VM1 (20 Mbps UDP, 10 s, DSCP EF):
+ 
+ ```bash
+-iperf3 -c 192.168.100.59 -u -b 20M -t 5 -S 0xB8
++iperf3 -c 192.168.137.8 -u -b 20M -t 5 -S 0xB8
+ ```
+ 
+ Esperado: resumen con `sender`/`receiver`, pérdida cercana a 0 % y `Jitter`. El monitor
+@@ -449,7 +453,7 @@ Esperado: `active`.
+ | Síntoma | Causa probable | Solución |
+ |---|---|---|
+ | `psql` se queda colgado | el paginador espera en un TTY | `PAGER=cat PSQL_PAGER=cat` o `psql -P pager=off` |
+-| `psql: no pg_hba.conf entry` | falta la línea para `192.168.100.60/32` | revisar `pg_hba.conf` y `systemctl restart postgresql` |
++| `psql: no pg_hba.conf entry` | falta la línea para `192.168.137.93/32` | revisar `pg_hba.conf` y `systemctl restart postgresql` |
+ | `password authentication failed` | `pgpass` desactualizado | copiar de nuevo `/etc/portocaribe-lab/pg_monitor.pass` a `/etc/monitor/pgpass` |
+ | fail2ban no arranca | backend `systemd` sin `python3-systemd` | `apt-get install -y python3-systemd` |
+ | Las reglas VLAN no aparecen | `netfilter-persistent reload` sin plugin | `iptables-restore < /etc/iptables/rules.v4` |
+@@ -473,10 +477,10 @@ Hace: captura DSCP, corrida completa del monitor, resumen y volcado de filas. Es
+ 
+ ```
+ run_id=... filas=39 ok=39 con_problema=0 ntp=sincronizado
+-BaseDatos  OK  192.168.100.59  SELECT 1 OK
++BaseDatos  OK  192.168.137.8  SELECT 1 OK
+ DHCP       OK  isc-dhcp-server servicio active; 1 leases activos
+-PortalWeb  OK  192.168.100.59  HTTP 200 · TLS TLSv1.3; TTFB ...
+-QoS        OK  192.168.100.59  iperf3 UDP 20M
++PortalWeb  OK  192.168.137.8  HTTP 200 · TLS TLSv1.3; TTFB ...
++QoS        OK  192.168.137.8  iperf3 UDP 20M
+ QoS        OK  captura        3998 paquetes de 4000 con DSCP 46
+ Seguridad  DROPPED  ... VLAN30_BLOCKED / VLAN40_BLOCKED / FAIL2BAN_BAN
+ VoIP       OK  127.0.0.1       SIP 401
+@@ -509,8 +513,8 @@ bash /tmp/probar-dhcp.sh  # fila DHCP con "1 leases activos"
+ | 2 | SIP OPTIONS a 5060 | `401` o `200` | |
+ | 3 | AMI login + `CoreShowChannels` | `Success`, `completo: True` | |
+ | 4 | Llamada `Local/1000@demo` | fila `ANSWERED` en `Master.csv` | |
+-| 5 | Monitor `--solo voip` | 12 filas, 0 problemas | |
+-| 6 | Portal `https://192.168.100.59/` | `200` + login `cliente.demo` | |
++| 5 | Monitor `--solo voip` | 4–12 filas según llamadas, 0 problemas | |
++| 6 | Portal `https://192.168.137.8/` | `200` + login `cliente.demo` | |
+ | 7 | `psql` remoto como `monitor` | `1` | |
+ | 8 | Ban/unban de `203.0.113.99` | 1 → regla `f2b-sshd` → 0 | |
+ | 9 | Reglas VLAN30/40 | 4 reglas con comentario | |
+@@ -519,7 +523,7 @@ bash /tmp/probar-dhcp.sh  # fila DHCP con "1 leases activos"
+ | 12 | iperf3 desde VM1 | ~20 Mbps, pérdida ~0 % | |
+ | 13 | `recolectar --host vm2` | 10 snapshots | |
+ | 14 | Receta inválida en el wrapper | `receta no permitida`, rc 2 | |
+-| 15 | Corrida completa | 37–39 filas, `con_problema=0` | |
++| 15 | Corrida completa | 27–39 filas, `con_problema=0` | |
+ | 16 | `export` dos veces | mismo SHA-256 | |
+ 
+ ---
+diff --git a/GUIA_USO.md b/GUIA_USO.md
+new file mode 100644
+index 0000000..723a6dd
+--- /dev/null
++++ b/GUIA_USO.md
+@@ -0,0 +1,544 @@
++# Guía de uso — PortoCaribe
++
++Guía operativa del laboratorio de dos VM: acceso, servicios, monitor, portal, pruebas y
++mantenimiento. Para el detalle paso a paso de cada comprobación está
++[`GUIA_PRUEBAS.md`](GUIA_PRUEBAS.md); para el estado y los pendientes,
++[`PENDIENTES.md`](PENDIENTES.md).
++
++> **Red actual:** `192.168.137.0/24`.
++>
++> | VM | IP | Rol |
++> |---|---|---|
++> | **VM1** | `192.168.137.93` | monitor, Asterisk, captura QoS, portal de respaldo |
++> | **VM2** | `192.168.137.8` | portal principal, PostgreSQL, fail2ban, iptables, DHCP, iperf3 |
++>
++> Si cambias de red, revisa la [sección 8](#8-cambiar-de-red-o-de-ip).
++
++---
++
++## 1. Acceso
++
++Desde el PC, por SSH en el puerto 22:
++
++```powershell
++ssh -p 22 vboxuser@192.168.137.93    # VM1
++ssh -p 22 vboxuser@192.168.137.8     # VM2
++```
++
++Dentro de la VM, las tareas de root se hacen con `su -` y la contraseña de laboratorio:
++
++```bash
++su -
++```
++
++> El usuario `vboxuser` no está en `sudoers`; por eso se usa `su -`. Si automatizas algo
++> sin TTY, la guía de pruebas explica el truco con `script`.
++
++Credenciales de demostración del portal: **`cliente.demo` / `Porto2026*`**.
++
++---
++
++## 2. Qué corre en cada VM
++
++### VM1 — `192.168.137.93`
++
++| Servicio | Para qué | Comprobación |
++|---|---|---|
++| `portocaribe-muestreo.timer` | lanza el monitor cada 5 min | `systemctl list-timers \| grep portocaribe` |
++| `portocaribe-qos-captura.timer` | `tcpdump` de UDP/5201 | `systemctl status portocaribe-qos-captura.service` |
++| `portocaribe-cierre.timer` | `export` del CSV a las 23:59 | `systemctl status portocaribe-cierre.timer` |
++| `asterisk` | SIP 5060/udp y AMI 127.0.0.1:5038 | `asterisk -rx "core show version"` |
++| `portal` + `apache2` | portal de respaldo en 443 | `https://192.168.137.93/` |
++
++Datos del monitor:
++
++```text
++/var/lib/portocaribe-monitor/datos/
++├── raw/AAAA-MM-DD/HHMMSS_<run_id>.jsonl   # crudo
++├── csv/metricas_AAAA-MM-DD.csv            # export del día
++├── entradas/vm2/                          # snapshots traídos por SSH
++├── capturas/qos.pcap                      # captura DSCP
++└── estado/                                # contadores y cursores
++```
++
++### VM2 — `192.168.137.8`
++
++| Servicio | Para qué | Comprobación |
++|---|---|---|
++| `apache2` + `portal` | portal principal | `https://192.168.137.8/` |
++| `postgresql` | base `portocaribe` | `psql ... SELECT 1` |
++| `fail2ban` | jails `sshd` y `apache-auth` | `fail2ban-client status sshd` |
++| `iptables` | reglas VLAN30/40 | `iptables -S INPUT \| grep VLAN` |
++| `isc-dhcp-server` | DHCP aislado en `dummy0`/`veth-dhcp` | `systemctl is-active isc-dhcp-server` |
++| `portocaribe-dhcp-veth` | crea el veth del cliente | `ip netns exec clientes ip -4 -br addr` |
++| `iperf3` | servidor QoS en 5201 | `ss -lntp \| grep 5201` |
++
++PostgreSQL escucha en `127.0.0.1` y `192.168.137.8:5432`; el `pg_hba` solo permite al
++usuario `monitor` desde `192.168.137.93/32` y desde loopback.
++
++---
++
++## 3. Portal de clientes
++
++### Entrar
++
++1. Abre `https://192.168.137.8/` (principal) o `https://192.168.137.93/` (respaldo).
++2. Acepta el aviso de certificado autofirmado.
++3. Entra con `cliente.demo` / `Porto2026*`.
++
++### Buscar
++
++La barra de búsqueda acepta:
++
++- número de contenedor ISO 6346, por ejemplo `CSQU3054383`;
++- BL, por ejemplo `BL-2026-001`;
++- orden de despacho, por ejemplo `OD-2026-001`.
++
++El resultado muestra estado, importador, buque, arribo, muelle y el timeline.
++
++### Servicio y base
++
++```bash
++su -
++systemctl status portal
++systemctl restart portal        # reinicia el backend (cierra sesiones)
++systemctl reload apache2        # recarga TLS/proxy
++```
++
++- Configuración: `/etc/portal/portal.toml`.
++- Base SQLite: `/var/lib/portal/portal.db`.
++- Apache: `/etc/apache2/sites-available/portal-portocaribe.conf`.
++- El backend escucha solo en `127.0.0.1:8080`; Apache termina TLS en 443.
++
++### Si no aparecen avisos
++
++Los avisos son datos de demostración con fecha `desde`/`hasta`; si el laboratorio se
++queda varios días sin resembrar, vencen. Se pueden refrescar sin borrar nada:
++
++```bash
++su -
++python3 - <<'PY'
++import sqlite3
++from datetime import date, timedelta
++hoy = date.today()
++con = sqlite3.connect('/var/lib/portal/portal.db')
++for titulo, (desde, hasta) in {
++    'Congestión en Muelle 2': (hoy - timedelta(days=1), hoy + timedelta(days=5)),
++    'Ventana de despacho extendida': (hoy, hoy + timedelta(days=7)),
++    'Mantenimiento de la red de muelles': (hoy - timedelta(days=1), hoy + timedelta(days=3)),
++}.items():
++    con.execute('UPDATE avisos SET desde=?, hasta=? WHERE titulo=?',
++                (desde.isoformat(), hasta.isoformat(), titulo))
++con.commit()
++PY
++```
++
++---
++
++## 4. Monitor de infraestructura
++
++### Configuración
++
++- `/etc/monitor/monitor.toml`: qué medir y a qué IPs.
++- `/etc/monitor/inventario.csv`: nombres, VLAN, zona y criticidad.
++- `/etc/monitor/ami.env`: secreto AMI (600, root; no está en el repo).
++- `/etc/monitor/id_ed25519`, `known_hosts`, `pgpass`: recolección SSH y PostgreSQL.
++
++### Comandos útiles
++
++Siempre como `monitor` y desde `/opt/portocaribe-monitor`:
++
++```bash
++su -
++cd /opt/portocaribe-monitor
++set -a; . /etc/monitor/ami.env; set +a
++
++# Validar configuración
++runuser -u monitor -- python3 -m monitor validate --config /etc/monitor/monitor.toml
++
++# Muestra simulada (no toca la red)
++runuser -u monitor -- python3 -m monitor run --config /etc/monitor/monitor.toml --simulate
++
++# Muestra real completa
++runuser -u monitor -- env ASTERISK_AMI_SECRET="$ASTERISK_AMI_SECRET" \
++  python3 -m monitor run --config /etc/monitor/monitor.toml
++
++# Solo algunos módulos
++runuser -u monitor -- env ASTERISK_AMI_SECRET="$ASTERISK_AMI_SECRET" \
++  python3 -m monitor run --config /etc/monitor/monitor.toml --solo portal,base_datos
++
++# Traer snapshots de VM2
++runuser -u monitor -- python3 -m monitor recolectar --config /etc/monitor/monitor.toml --host vm2
++
++# Reconstruir el CSV del día
++runuser -u monitor -- python3 -m monitor export --config /etc/monitor/monitor.toml
++
++# Exportar otro día
++runuser -u monitor -- python3 -m monitor export --config /etc/monitor/monitor.toml --fecha 2026-11-20
++
++# Retención: comprime >7 días y borra >180
++runuser -u monitor -- python3 -m monitor prune --config /etc/monitor/monitor.toml
++```
++
++Módulos: `camaras`, `portal`, `base_datos`, `voip`, `qos`, `seguridad`, `dhcp`.
++En este laboratorio `camaras` está deshabilitado (no hay VLAN 30).
++
++### Interpretar la salida
++
++```text
++run_id=... filas=28 ok=28 con_problema=0 ntp=sincronizado
++```
++
++- `ok` incluye `ONLINE`, `OK` y `DROPPED`; un `DROPPED` de seguridad **no** es un fallo.
++- `con_problema > 0` suele ser `ERROR`, `STALE` o `SKIPPED`.
++- Un `SKIPPED` típico es VoIP «sin llamadas hoy»: haz una llamada de prueba y vuelve a
++  ejecutar.
++- Salida `1` si hay problemas o si se interrumpe por señal.
++
++### Timers y logs
++
++```bash
++systemctl list-timers --all | grep portocaribe
++systemctl status portocaribe-monitor.service
++journalctl -u portocaribe-monitor.service -n 80 --no-pager
++journalctl -u portocaribe-qos-captura.service -n 40 --no-pager
++```
++
++- `portocaribe-muestreo.timer`: cada 5 minutos.
++- `portocaribe-qos-captura.timer`: cada 5 minutos, captura 40 s o 4000 paquetes.
++- `portocaribe-cierre.timer`: 23:59, ejecuta `export`.
++
++### Leer la última corrida
++
++```bash
++f=$(ls -t /var/lib/portocaribe-monitor/datos/raw/*/*.jsonl | head -1)
++python3 - "$f" <<'PY'
++import json, sys, collections
++filas = [json.loads(l) for l in open(sys.argv[1], encoding="utf-8")]
++print("archivo:", sys.argv[1])
++print("filas:", len(filas), collections.Counter(f["estado"] for f in filas))
++for f in filas:
++    print(f"{f['modulo']:10} {f['estado']:9} {str(f['detalle'])[:100]}")
++PY
++```
++
++---
++
++## 5. Asterisk y VoIP
++
++```bash
++su -
++systemctl status asterisk
++asterisk -rx "core show version"
++ss -lunp | grep ':5060'
++ss -lntp | grep ':5038'
++```
++
++- SIP: `0.0.0.0:5060/udp`.
++- AMI: `127.0.0.1:5038/tcp`, usuario `monitor`.
++- Secreto AMI: `/etc/monitor/ami.env`.
++- CDR: `/var/log/asterisk/cdr-csv/Master.csv` (sin cabecera, hora local).
++
++Llamada de prueba:
++
++```bash
++asterisk -rx "channel originate Local/1000@demo application Wait 2"
++sleep 4
++tail -1 /var/log/asterisk/cdr-csv/Master.csv
++```
++
++Debe aparecer `ANSWERED`. Luego:
++
++```bash
++cd /opt/portocaribe-monitor
++set -a; . /etc/monitor/ami.env; set +a
++runuser -u monitor -- env ASTERISK_AMI_SECRET="$ASTERISK_AMI_SECRET" \
++  python3 -m monitor run --config /etc/monitor/monitor.toml --solo voip
++```
++
++Esperado: 4 filas (SIP, AMI y las dos patas del CDR) y `con_problema=0`.
++
++---
++
++## 6. PostgreSQL, QoS, DHCP y seguridad
++
++### PostgreSQL
++
++Desde VM1, como `monitor`:
++
++```bash
++su -
++cd /tmp
++runuser -u monitor -- env PGPASSFILE=/etc/monitor/pgpass \
++  psql -w -tAc "SELECT 1" -h 192.168.137.8 -p 5432 -U monitor -d portocaribe
++```
++
++Esperado: `1`.
++
++Si cambias la IP de VM1 o VM2, ajusta `pg_hba.conf` y `listen_addresses` en VM2 y
++reinicia PostgreSQL (ver sección 8).
++
++### QoS / iperf3
++
++En VM2 el servidor debe escuchar:
++
++```bash
++ss -lntp | grep ':5201'
++```
++
++Prueba desde VM1 (20 Mbps UDP, DSCP EF, 5 s):
++
++```bash
++iperf3 -c 192.168.137.8 -u -b 20M -t 5 -S 0xB8
++```
++
++El monitor ejecuta su propia prueba de 10 s y lee `qos.pcap`; la captura debe tener
++~3998/4000 paquetes con DSCP 46.
++
++### DHCP
++
++En VM2:
++
++```bash
++systemctl is-active isc-dhcp-server portocaribe-dhcp-lease.timer
++systemctl start portocaribe-dhcp-lease.service
++awk '/^lease /{ip=$2} /binding state active/{print ip}' /var/lib/dhcp/dhcpd.leases | sort -u
++ip netns exec clientes ip -4 -br addr show veth-cli
++```
++
++Esperado: 1 IP (`10.30.60.100`) y `veth-cli` con esa dirección. El DHCP escucha solo en
++`dummy0` y `veth-dhcp`, nunca en `192.168.137.0/24`.
++
++### fail2ban
++
++Prueba controlada con una IP TEST-NET (no existe en el aula):
++
++```bash
++fail2ban-client set sshd banip 203.0.113.99
++fail2ban-client status sshd
++iptables -S | grep 203.0.113.99
++fail2ban-client set sshd unbanip 203.0.113.99
++fail2ban-client status sshd
++```
++
++Esperado: `Currently banned: 1` → regla `f2b-sshd` → `Currently banned: 0`.
++
++### iptables VLAN30/40
++
++```bash
++iptables -S INPUT | grep -E 'VLAN(30|40)-DROP'
++iptables-save -c | grep -E 'VLAN(30|40)-DROP'
++```
++
++Para que suban los contadores, desde VM1 como root:
++
++```bash
++bash /tmp/generar-trafico-vlan.sh
++```
++
++Luego, en VM1:
++
++```bash
++cd /opt/portocaribe-monitor
++set -a; . /etc/monitor/ami.env; set +a
++runuser -u monitor -- env ASTERISK_AMI_SECRET="$ASTERISK_AMI_SECRET" \
++  python3 -m monitor recolectar --config /etc/monitor/monitor.toml --host vm2
++runuser -u monitor -- env ASTERISK_AMI_SECRET="$ASTERISK_AMI_SECRET" \
++  python3 -m monitor run --config /etc/monitor/monitor.toml --solo seguridad
++```
++
++Deben salir filas `Seguridad DROPPED` con `VLAN30_BLOCKED`/`VLAN40_BLOCKED`,
++`paquetes_delta` y `bytes_delta`.
++
++---
++
++## 7. Pruebas
++
++### Suites unitarias
++
++En las VM Debian (entorno real). Copia el árbol de pruebas y ejecuta:
++
++Desde el PC (PowerShell):
++
++```powershell
++tar czf pa6-tests.tgz monitor tests_monitor portal tests monitor.toml portal.dev.toml inventario.csv pyproject.toml
++scp pa6-tests.tgz vboxuser@192.168.137.93:/tmp/
++
++# scripts de diagnóstico para VM1
++scp despliegue/diagnostico/prueba-asterisk.sh despliegue/diagnostico/corrida-completa.sh despliegue/diagnostico/export-idempotente.sh despliegue/diagnostico/senales2.sh despliegue/diagnostico/probar-dhcp.sh despliegue/diagnostico/generar-trafico-vlan.sh vboxuser@192.168.137.93:/tmp/
++
++# para VM2
++scp despliegue/diagnostico/prueba-vm2.sh vboxuser@192.168.137.8:/tmp/
++```
++
++Luego, dentro de la VM:
++
++```bash
++mkdir -p /tmp/pa6-tests && tar xzf /tmp/pa6-tests.tgz -C /tmp/pa6-tests
++cd /tmp/pa6-tests
++python3 -m unittest discover -s tests_monitor -v   # 34 pruebas
++python3 -m unittest discover -s tests -v           # 35 pruebas
++```
++
++Esperado: `OK` en ambas. En Windows hace falta `tzdata` (`python -m pip install tzdata`).
++
++### Scripts de diagnóstico
++
++Cópialos a `/tmp` (bloque anterior) y ejecútalos como root:
++
++Dentro de cada VM:
++
++```bash
++su -
++bash /tmp/prueba-asterisk.sh       # VM1
++bash /tmp/prueba-vm2.sh            # VM2
++bash /tmp/corrida-completa.sh      # VM1
++bash /tmp/export-idempotente.sh    # VM1
++bash /tmp/senales2.sh              # VM1
++bash /tmp/probar-dhcp.sh           # VM1
++bash /tmp/generar-trafico-vlan.sh  # VM1, tráfico de prueba VLAN
++```
++
++Desde el PC:
++
++```powershell
++python .\despliegue\diagnostico\portal-login.py 192.168.137.8
++python .\despliegue\diagnostico\portal-login.py 192.168.137.93
++```
++
++### Resultados de referencia (2026-11-21)
++
++| Prueba | Resultado |
++|---|---|
++| `prueba-asterisk.sh` | SIP 401, AMI Success, llamada ANSWERED |
++| `prueba-vm2.sh` | 7 servicios activos, portal 200, `psql` 1, fail2ban 1→0, 4 reglas VLAN, 1 lease, iperf3 5201, wrapper OK |
++| `corrida-completa.sh` | 28 filas, 28 OK, 0 problemas |
++| `export-idempotente.sh` | mismo SHA-256, idempotente |
++| `senales2.sh` | `rc=1` y JSONL escrito |
++| `probar-dhcp.sh` | 1 lease activo |
++| Suites | 34/34 monitor, 35/35 portal |
++| Portal PC | login 200, cookie Secure, tracking por número/BL/orden, 3 avisos |
++
++---
++
++## 8. Cambiar de red o de IP
++
++Si las VM cambian de IP, actualiza **cuatro** puntos: configuración del monitor,
++`pg_hba`/`listen_addresses`, `authorized_keys` y `known_hosts`.
++
++### VM1
++
++```bash
++su -
++# Sustituye las IPs viejas por las nuevas en estos tres archivos:
++sed -i 's/192\.168\.137\.8/NUEVA_IP_VM2/g; s/192\.168\.137\.93/NUEVA_IP_VM1/g' \
++  /etc/monitor/monitor.toml /etc/monitor/inventario.csv /etc/monitor/pgpass
++
++# Clave del host nuevo de VM2:
++ssh-keyscan -t ed25519 NUEVA_IP_VM2 > /etc/monitor/known_hosts
++chmod 644 /etc/monitor/known_hosts
++
++# Comprueba:
++runuser -u monitor -- ssh -i /etc/monitor/id_ed25519 \
++  -o IdentitiesOnly=yes -o UserKnownHostsFile=/etc/monitor/known_hosts \
++  -o StrictHostKeyChecking=yes monitor@NUEVA_IP_VM2 apache
++cd /tmp && runuser -u monitor -- env PGPASSFILE=/etc/monitor/pgpass \
++  psql -w -tAc "SELECT 1" -h NUEVA_IP_VM2 -U monitor -d portocaribe
++```
++
++### VM2
++
++```bash
++su -
++# 1) Permitir a VM1 en pg_hba.conf
++sed -i 's|^host portocaribe monitor .*|host portocaribe monitor NUEVA_IP_VM1/32 scram-sha-256|' \
++  /etc/postgresql/15/main/pg_hba.conf
++
++# 2) Escuchar en la IP nueva
++su postgres -c "cd /tmp && psql -X -c \"ALTER SYSTEM SET listen_addresses = 'localhost,NUEVA_IP_VM2'\""
++
++# 3) Autorizar la clave del monitor desde la IP nueva
++sed -i 's|from="[^"]*"|from="NUEVA_IP_VM1"|' \
++  /var/lib/portocaribe-monitor/.ssh/authorized_keys
++
++systemctl restart postgresql
++ss -lntp | grep ':5432'
++```
++
++También actualiza en el repo `monitor.toml`, `inventario.csv`, las plantillas de
++`despliegue/` y los scripts de `despliegue/diagnostico/`. Los instaladores aceptan
++variables: `IP_PUBLICA` (VM1), `IP_VM1`/`IP_VM2` (VM2).
++
++### Certificado TLS
++
++Si quieres que el navegador valide el nombre, regenera el certificado con la IP actual:
++
++```bash
++su -
++openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
++  -keyout /etc/apache2/ssl/portal.key -out /etc/apache2/ssl/portal.crt \
++  -subj "/C=CO/ST=Bolivar/L=Cartagena/O=PortoCaribe S.A./CN=portal.portocaribe.local" \
++  -addext "subjectAltName=DNS:portal.portocaribe.local,DNS:localhost,IP:127.0.0.1,IP:192.168.137.8" \
++  -addext "basicConstraints=critical,CA:FALSE" \
++  -addext "keyUsage=critical,digitalSignature,keyEncipherment" \
++  -addext "extendedKeyUsage=serverAuth"
++chmod 0640 /etc/apache2/ssl/portal.key
++chown root:www-data /etc/apache2/ssl/portal.key /etc/apache2/ssl/portal.crt
++apache2ctl configtest && systemctl reload apache2
++```
++
++En VM1 cambia `IP:192.168.137.8` por `IP:192.168.137.93`. El certificado seguirá siendo
++autofirmado; el navegador pedirá aceptarlo.
++
++---
++
++## 9. Problemas frecuentes
++
++| Síntoma | Causa probable | Solución |
++|---|---|---|
++| El monitor da `ERROR … timed out` | IP vieja, servicio caído o firewall | Revisa `monitor.toml`, `systemctl status` y `ss -lntp` |
++| `psql: no pg_hba.conf entry` | falta la línea para la IP de VM1 | Añade la línea y `systemctl restart postgresql` |
++| `password authentication failed` | `pgpass` desactualizado | Copia la contraseña de `/etc/portocaribe-lab/pg_monitor.pass` a `/etc/monitor/pgpass` |
++| La recolección SSH falla | clave, `known_hosts` o `from=` | Revisa `/etc/monitor/id_ed25519`, `ssh-keyscan` y `authorized_keys` |
++| El portal da 502 | backend `portal` caído | `systemctl status portal`; `journalctl -u portal` |
++| El login no persiste | estás en HTTP y la cookie es `Secure` | Usa `https://` |
++| No hay lease DHCP | veth o timer detenido | `systemctl start portocaribe-dhcp-veth portocaribe-dhcp-lease.service` |
++| QoS sin captura | timer detenido o iperf3 caído | `systemctl start portocaribe-qos-captura.service`; `ss -lntp \| grep 5201` |
++| `run` devuelve 1 pero todo está `OK` | hay un `SKIPPED` (VoIP sin llamadas) | Haz una llamada y repite `--solo voip` |
++| Muchas filas `FAIL2BAN_BAN` antiguas | el log conserva baneos históricos | Es ruido; el CSV deduplica. Rota `/var/log/fail2ban.log` si quieres limpiarlo |
++| Aviso de certificado | autofirmado y/o SAN viejo | Acepta el aviso o regenera el SAN (sección 8) |
++
++---
++
++## 10. Checklist rápido
++
++En VM1:
++
++```bash
++su -
++systemctl is-active apache2 portal asterisk
++systemctl list-timers --all | grep portocaribe
++cd /opt/portocaribe-monitor
++set -a; . /etc/monitor/ami.env; set +a
++runuser -u monitor -- python3 -m monitor validate --config /etc/monitor/monitor.toml
++runuser -u monitor -- env ASTERISK_AMI_SECRET="$ASTERISK_AMI_SECRET" \
++  python3 -m monitor run --config /etc/monitor/monitor.toml
++```
++
++En VM2:
++
++```bash
++su -
++systemctl is-active postgresql fail2ban isc-dhcp-server apache2 portal iperf3
++fail2ban-client status sshd
++ss -lntp | grep -E ':(443|5201|5432) '
++```
++
++En el PC:
++
++```powershell
++python .\despliegue\diagnostico\portal-login.py 192.168.137.8
++```
++
++Si todo está en `active` y la corrida termina con `con_problema=0`, el laboratorio está
++operativo.
+diff --git a/PENDIENTES.md b/PENDIENTES.md
+index cd54440..86f2e2f 100644
+--- a/PENDIENTES.md
++++ b/PENDIENTES.md
+@@ -1,11 +1,11 @@
+ # Pendientes del proyecto PortoCaribe
+ 
+-Estado al **2026-11-11**, segundo sprint, sobre la red `192.168.100.0/24`:
++Estado al **2026-11-21**, segundo sprint, sobre la red `192.168.137.0/24`:
+ 
+ | Máquina | IP | Rol |
+ |---|---|---|
+-| **VM1** | `192.168.100.60` | monitor + Asterisk (SIP/AMI/CDR) + portal de respaldo + captura QoS |
+-| **VM2** | `192.168.100.59` | portal principal (Apache/TLS) + PostgreSQL + fail2ban + iptables + DHCP |
++| **VM1** | `192.168.137.93` | monitor + Asterisk (SIP/AMI/CDR) + portal de respaldo + captura QoS |
++| **VM2** | `192.168.137.8` | portal principal (Apache/TLS) + PostgreSQL + fail2ban + iptables + DHCP |
+ 
+ > **Resumen:** la topología de dos VM ya existe y **todos los módulos del monitor miden
+ > datos reales** (portal, base de datos, VoIP, QoS, seguridad y DHCP). La recolección SSH
+@@ -21,8 +21,8 @@ Estado al **2026-11-11**, segundo sprint, sobre la red `192.168.100.0/24`:
+ 
+ | Pendiente anterior | Estado | Evidencia |
+ |---|---|---|
+-| **VM2** con portal secundario | **Hecho** | `https://192.168.100.59/` → `200`, TLS 1.3, SAN con la IP nueva |
+-| **PostgreSQL** | **Hecho** | PostgreSQL 15.19, base `portocaribe`, rol `monitor`, `pg_hba` para `192.168.100.60/32`; `SELECT 1` desde VM1 |
++| **VM2** con portal secundario | **Hecho** | `https://192.168.137.8/` → `200`, TLS 1.3; certificado autofirmado (SAN por regenerar tras el cambio de red) |
++| **PostgreSQL** | **Hecho** | PostgreSQL 15.19, base `portocaribe`, rol `monitor`, `pg_hba` para `192.168.137.93/32`; `SELECT 1` desde VM1 |
+ | **fail2ban** | **Hecho** | jails `sshd` y `apache-auth`; un ban real de `203.0.113.50` visible en `fail2ban-client status sshd` |
+ | **iptables VLAN30/40** | **Hecho** | reglas `VLAN30-DROP:`/`VLAN40-DROP:` persistentes en `/etc/iptables/rules.v4`, con LOG al kernel y contadores |
+ | **DHCP** | **Hecho** | `isc-dhcp-server` en `dummy0` (10.30.50.5/24) y un **arrendamiento real** `10.30.60.100` vía veth + netns (aislado de la red del aula) |
+@@ -91,6 +91,25 @@ Estado al **2026-11-11**, segundo sprint, sobre la red `192.168.100.0/24`:
+ > minutos y el CSV se reconstruye en el cierre de las 23:59. La guía para repetir cada
+ > comprobación está en [`GUIA_PRUEBAS.md`](GUIA_PRUEBAS.md).
+ 
++### 2.1 Verificación tras la migración de red (2026-11-21)
++
++Al mover las VM a `192.168.137.0/24` se actualizaron `monitor.toml`, `inventario.csv`,
++`pgpass`, `known_hosts`, `pg_hba.conf`, `listen_addresses` y el `from=` de
++`authorized_keys`. Con esa configuración:
++
++| Comprobación | Resultado |
++|---|---|
++| Corrida completa del monitor | **28 filas, 28 OK, 0 con problema**, `rc=0` |
++| Corrida automática (timer 08:05) | **27 filas, 0 con problema** |
++| Suites | **34/34 monitor**, **35/35 portal** |
++| Portal principal y de respaldo | login `200`, búsqueda por contenedor/BL/orden, **3 avisos** |
++| PostgreSQL remoto | `SELECT 1` → `1` |
++| fail2ban | ban y unban de `203.0.113.99` → 1 → 0 |
++| VLAN30/VLAN40 | contadores > 0 y filas `DROPPED` |
++| DHCP | 1 lease activo, `10.30.60.100` |
++| QoS | 3998/4000 paquetes con DSCP 46 |
++| `export` dos veces | mismo SHA-256 `1510bf4c…` → idempotente |
++
+ ---
+ 
+ ## 3. Lo que sigue pendiente
+@@ -100,7 +119,7 @@ Estado al **2026-11-11**, segundo sprint, sobre la red `192.168.100.0/24`:
+ | **Cámaras VLAN 30** | No hay cámaras ni VLAN 30 en la red del aula; `camaras.habilitado = false` | Conectar los equipos, poner sus IPs en `inventario.csv` y activar el módulo |
+ | **Día completo (288 JSONL)** | El muestreo arrancó el 2026-11-11 a las 18:30; el primer día completo es el **2026-11-12** | Dejar correr los timers y ejecutar `export --fecha 2026-11-12` |
+ | **Tablero `.pbix`** | El repo entrega medidas y guía; el binario se arma en Power BI Desktop | Montar el modelo con [`powerbi/`](powerbi/) sobre el CSV real |
+-| **Certificado TLS** | Autofirmado (SAN con `192.168.100.59`/`.60`) | Sustituir por CA o dominio real |
++| **Certificado TLS** | Autofirmado; el SAN puede ser el de la red anterior | Regenerarlo con la IP actual o sustituirlo por una CA/dominio real |
+ | **Backups** | Sin respaldo de `portal.db`, PostgreSQL ni el dataset | `pg_dump` diario + copia del CSV/JSONL |
+ | **Alertas del monitor** | Si un timer falla solo queda el journal | Healthcheck/correo cuando `run` devuelva 1 o 3 |
+ | **IP fija** | `enp0s3` sigue por DHCP; si cambia, el SAN y `known_hosts` dejan de cuadrar | Reserva DHCP o IP estática |
+@@ -133,7 +152,7 @@ Estado al **2026-11-11**, segundo sprint, sobre la red `192.168.100.0/24`:
+ ## 5. Cómo verificar cada bloque
+ 
+ ```bash
+-# VM1 (192.168.100.60), como root
++# VM1 (192.168.137.93), como root
+ cd /opt/portocaribe-monitor
+ runuser -u monitor -- python3 -m monitor validate --config /etc/monitor/monitor.toml
+ runuser -u monitor -- env ASTERISK_AMI_SECRET="$(sed 's/.*=//' /etc/monitor/ami.env)" \
+@@ -144,7 +163,7 @@ systemctl list-timers --all | grep portocaribe
+ ```
+ 
+ ```bash
+-# VM2 (192.168.100.59), como root
++# VM2 (192.168.137.8), como root
+ systemctl is-active postgresql fail2ban isc-dhcp-server apache2
+ fail2ban-client status sshd
+ iptables-save -c | grep -E 'VLAN(30|40)-DROP'
+@@ -179,7 +198,7 @@ python .\despliegue\diagnostico\portal-login.py
+   que [`despliegue/comun/apt-lab.sh`](despliegue/comun/apt-lab.sh) añade
+   `deb.debian.org` y `security.debian.org` por HTTPS con pin de bullseye para Asterisk.
+ - **DHCP aislado**: `isc-dhcp-server` escucha en `dummy0` (10.30.50.5/24) y en el veth
+-  `10.30.60.1/24`; **nunca** en `192.168.100.0/24`, para no competir con el router del aula.
++  `10.30.60.1/24`; **nunca** en `192.168.137.0/24`, para no competir con el router del aula.
+ - **Tráfico de prueba VLAN**: `generar-trafico-vlan.sh` envía paquetes con origen
+   `10.30.30.12`/`10.30.40.77` a VM2 para ejercitar las reglas; es tráfico sintético de
+   laboratorio, no una medición de cámaras reales.
+diff --git a/README.md b/README.md
+index d185473..781e28f 100644
+--- a/README.md
++++ b/README.md
+@@ -9,14 +9,16 @@ QoS y seguridad con herramientas livianas, y cómo el portal puede mejorar la ex
+ del cliente frente a los problemas originales: consultas superiores a 10 segundos,
+ poca visibilidad de la carga y necesidad de controles de acceso.
+ 
+-> **Estado:** monitor implementado y probado (**34 pruebas**), portal validado,
+-> documentación y artefactos de despliegue listos. Los datos del portal son ficticios.
++> **Estado:** monitor implementado y probado (**34 pruebas**), portal validado
++> (**35 pruebas**), documentación y artefactos de despliegue listos. Los datos del portal
++> son ficticios. **Verificado el 2026-11-21** en la red `192.168.137.0/24`: corrida del
++> monitor con 0 problemas, portal y respaldo con login, y servicios activos al arranque.
+ >
+-> **Desplegado en dos VM** (red `192.168.100.0/24`, 2026-11-11):
++> **Desplegado en dos VM** (red `192.168.137.0/24`, 2026-11-11):
+ >
+-> - **VM1 `192.168.100.60`:** monitor + **Asterisk** (SIP 5060, AMI 5038, CDR) + captura
++> - **VM1 `192.168.137.93`:** monitor + **Asterisk** (SIP 5060, AMI 5038, CDR) + captura
+ >   QoS + portal de respaldo. Detalles en [`DESPLIEGUE_VM1.md`](DESPLIEGUE_VM1.md).
+-> - **VM2 `192.168.100.59`:** portal principal, **PostgreSQL**, **fail2ban**,
++> - **VM2 `192.168.137.8`:** portal principal, **PostgreSQL**, **fail2ban**,
+ >   **iptables** (VLAN30/40-DROP) y **DHCP**. Detalles en
+ >   [`DESPLIEGUE_VM2.md`](DESPLIEGUE_VM2.md).
+ >
+@@ -47,7 +49,7 @@ poca visibilidad de la carga y necesidad de controles de acceso.
+ 
+ ```
+                     ┌──────────────────────────────────┐
+-                    │ VM1  192.168.100.60              │
++                    │ VM1  192.168.137.93              │
+                     │ python -m monitor                │
+                     │  · sondas de red                 │
+                     │  · SSH de solo lectura a VM2     │
+@@ -58,7 +60,7 @@ poca visibilidad de la carga y necesidad de controles de acceso.
+                             │ SSH (monitor, sudo acotado)
+                             │ HTTPS 443 · psql 5432 · SIP/AMI
+                     ┌───────▼──────────────────────────┐
+-                    │ VM2  192.168.100.59              │
++                    │ VM2  192.168.137.8              │
+                     │ Portal (Apache + Python)         │
+                     │ PostgreSQL, fail2ban,            │
+                     │ iptables VLAN30/40-DROP, DHCP    │
+@@ -248,6 +250,7 @@ python3 -m unittest discover -s tests -v
+ 
+ | Documento | Contenido |
+ |---|---|
++| [`GUIA_USO.md`](GUIA_USO.md) | Guía operativa: acceso, servicios, monitor, portal, pruebas y mantenimiento |
+ | [`PENDIENTES.md`](PENDIENTES.md) | Estado del proyecto, evidencia y pendientes reales |
+ | [`GUIA_PRUEBAS.md`](GUIA_PRUEBAS.md) | Guía paso a paso para probar Asterisk y los servicios de VM2 |
+ | [`DESPLIEGUE_VM1.md`](DESPLIEGUE_VM1.md) | Monitor, Asterisk, QoS y portal de respaldo |
+diff --git a/despliegue/diagnostico/corrida-completa.sh b/despliegue/diagnostico/corrida-completa.sh
+index 30f1b55..46a3804 100644
+--- a/despliegue/diagnostico/corrida-completa.sh
++++ b/despliegue/diagnostico/corrida-completa.sh
+@@ -9,7 +9,7 @@ set -a
+ set +a
+ echo "== prueba psql como monitor =="
+ runuser -u monitor -- env PGPASSFILE=/etc/monitor/pgpass \
+-  psql -w -tAc "SELECT 1" -h 192.168.100.59 -p 5432 -U monitor -d portocaribe
++  psql -w -tAc "SELECT 1" -h 192.168.137.8 -p 5432 -U monitor -d portocaribe
+ echo "== corrida =="
+ systemctl start --no-block portocaribe-qos-captura.service || true
+ sleep 2
+diff --git a/despliegue/diagnostico/generar-trafico-vlan.sh b/despliegue/diagnostico/generar-trafico-vlan.sh
+index 7a502c3..2fe878d 100644
+--- a/despliegue/diagnostico/generar-trafico-vlan.sh
++++ b/despliegue/diagnostico/generar-trafico-vlan.sh
+@@ -17,9 +17,9 @@ def paquete(src, dst, puerto=9999):
+ s = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
+ s.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+ for _ in range(6):
+-    s.sendto(paquete("10.30.30.12", "192.168.100.59"), ("192.168.100.59", 0))
++    s.sendto(paquete("10.30.30.12", "192.168.137.8"), ("192.168.137.8", 0))
+ for _ in range(4):
+-    s.sendto(paquete("10.30.40.77", "192.168.100.59"), ("192.168.100.59", 0))
++    s.sendto(paquete("10.30.40.77", "192.168.137.8"), ("192.168.137.8", 0))
+ print("enviados 10 paquetes con origen VLAN30/VLAN40")
+ PY
+ sleep 1
+diff --git a/despliegue/diagnostico/portal-login.py b/despliegue/diagnostico/portal-login.py
+index f9fa7f6..b5f22cb 100644
+--- a/despliegue/diagnostico/portal-login.py
++++ b/despliegue/diagnostico/portal-login.py
+@@ -16,7 +16,7 @@ import ssl
+ 
+ def main() -> int:
+     parser = argparse.ArgumentParser(description="Login del portal PortoCaribe")
+-    parser.add_argument("ip", nargs="?", default="192.168.100.59")
++    parser.add_argument("ip", nargs="?", default="192.168.137.8")
+     parser.add_argument("--usuario", default="cliente.demo")
+     parser.add_argument("--password", default="Porto2026*")
+     args = parser.parse_args()
+diff --git a/despliegue/diagnostico/probar-recoleccion.sh b/despliegue/diagnostico/probar-recoleccion.sh
+index 5d9a82e..08e1a12 100644
+--- a/despliegue/diagnostico/probar-recoleccion.sh
++++ b/despliegue/diagnostico/probar-recoleccion.sh
+@@ -12,5 +12,5 @@ echo "== snapshots =="
+ ls -la /var/lib/portocaribe-monitor/datos/entradas/vm2 2>&1
+ echo "== prueba directa ssh (receta apache) =="
+ runuser -u monitor -- ssh -i /etc/monitor/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes \
+-  -o UserKnownHostsFile=/etc/monitor/known_hosts -o ConnectTimeout=5 monitor@192.168.100.59 apache
++  -o UserKnownHostsFile=/etc/monitor/known_hosts -o ConnectTimeout=5 monitor@192.168.137.8 apache
+ echo "rc_ssh=$?"
+diff --git a/despliegue/diagnostico/prueba-vm2.sh b/despliegue/diagnostico/prueba-vm2.sh
+index 7a75344..f8aefec 100644
+--- a/despliegue/diagnostico/prueba-vm2.sh
++++ b/despliegue/diagnostico/prueba-vm2.sh
+@@ -1,6 +1,6 @@
+ #!/bin/bash
+ # Prueba de extremo a extremo de VM2 (portal, PostgreSQL, fail2ban, iptables,
+-# DHCP, iperf3 y recolección). Ejecutar como root en 192.168.100.59.
++# DHCP, iperf3 y recolección). Ejecutar como root en 192.168.137.8.
+ set -uo pipefail
+ export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ export PAGER=cat PSQL_PAGER=cat SYSTEMD_PAGER=cat
+diff --git a/despliegue/vm1/etc/monitor.toml b/despliegue/vm1/etc/monitor.toml
+index 05c0067..06a3332 100644
+--- a/despliegue/vm1/etc/monitor.toml
++++ b/despliegue/vm1/etc/monitor.toml
+@@ -1,8 +1,8 @@
+-# Monitor PortoCaribe — VM1 (192.168.100.60)
++# Monitor PortoCaribe — VM1 (192.168.137.93)
+ #
+ # Topología del laboratorio (segundo sprint):
+-#   VM1 192.168.100.60  monitor + Asterisk (SIP 5060, AMI 5038, CDR)
+-#   VM2 192.168.100.59  portal + PostgreSQL + fail2ban + iptables + DHCP
++#   VM1 192.168.137.93  monitor + Asterisk (SIP 5060, AMI 5038, CDR)
++#   VM2 192.168.137.8  portal + PostgreSQL + fail2ban + iptables + DHCP
+ #
+ # La recolección SSH trae los snapshots de VM2; el CDR de Asterisk se lee
+ # localmente porque el monitor corre en la misma máquina.
+@@ -30,7 +30,7 @@ timeout_s = 15
+ recolectar_antes = true
+ 
+ [recoleccion.vm2]
+-host = "192.168.100.59"
++host = "192.168.137.8"
+ 
+ [salida]
+ csv = true
+@@ -45,7 +45,7 @@ rtsp_puerto = 554
+ 
+ [portal]
+ habilitado = true
+-url = "https://192.168.100.59/"
++url = "https://192.168.137.8/"
+ timeout_s = 15
+ umbral_degradado_s = 10.0
+ verificar_tls = false
+@@ -53,7 +53,7 @@ estado_apache = "/var/lib/portocaribe-monitor/datos/entradas/vm2/apache.txt"
+ 
+ [base_datos]
+ habilitado = true
+-host = "192.168.100.59"
++host = "192.168.137.8"
+ puerto = 5432
+ base = "portocaribe"
+ usuario = "monitor"
+@@ -71,7 +71,7 @@ cdr = "/var/log/asterisk/cdr-csv/Master.csv"
+ 
+ [qos]
+ habilitado = true
+-servidor_iperf = "192.168.100.59"
++servidor_iperf = "192.168.137.8"
+ duracion_s = 10
+ ancho_banda = "20M"
+ interfaz = "enp0s3"
+diff --git a/despliegue/vm1/install.sh b/despliegue/vm1/install.sh
+index 565b6b7..e744a83 100644
+--- a/despliegue/vm1/install.sh
++++ b/despliegue/vm1/install.sh
+@@ -22,7 +22,7 @@ RAIZ="$(cd "${1:-$BASE/../..}" && pwd)"
+ DATOS=/var/lib/portocaribe-monitor/datos
+ ENTRADAS=$DATOS/entradas/local
+ SSL_DIR=/etc/apache2/ssl
+-IP_PUBLICA="${IP_PUBLICA:-192.168.100.60}"
++IP_PUBLICA="${IP_PUBLICA:-192.168.137.93}"
+ 
+ paso() { printf '\n=== %s ===\n' "$*"; }
+ [ -d "$RAIZ/monitor" ] && [ -d "$RAIZ/portal" ] || {
+diff --git a/despliegue/vm1/postconfig.sh b/despliegue/vm1/postconfig.sh
+index ef9ab1b..c1513c9 100644
+--- a/despliegue/vm1/postconfig.sh
++++ b/despliegue/vm1/postconfig.sh
+@@ -14,7 +14,7 @@ export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ 
+ BASE="$(cd "$(dirname "$0")" && pwd)"
+ RAIZ="$(cd "${1:-$BASE/../..}" && pwd)"
+-IP_VM2="${IP_VM2:-192.168.100.59}"
++IP_VM2="${IP_VM2:-192.168.137.8}"
+ DATOS=/var/lib/portocaribe-monitor/datos
+ PUB_LOCAL=/tmp/monitor_key.pub
+ PG_TMP=/tmp/pg_monitor.pass
+diff --git a/despliegue/vm2/etc/dhcp/dhcpd.conf b/despliegue/vm2/etc/dhcp/dhcpd.conf
+index ae541fb..058ddb8 100644
+--- a/despliegue/vm2/etc/dhcp/dhcpd.conf
++++ b/despliegue/vm2/etc/dhcp/dhcpd.conf
+@@ -1,6 +1,6 @@
+ # PortoCaribe — DHCP de laboratorio (VM2)
+ # Se sirve en dummy0 (10.30.50.5/24) y en veth-dhcp (10.30.60.1/24), dos enlaces
+-# aislados: nunca se escucha en la red real 192.168.100.0/24 para no competir con
++# aislados: nunca se escucha en la red real 192.168.137.0/24 para no competir con
+ # el router del laboratorio.
+ option domain-name "portocaribe.local";
+ option domain-name-servers 10.30.50.1;
+diff --git a/despliegue/vm2/install.sh b/despliegue/vm2/install.sh
+index 39c10a3..c845aba 100644
+--- a/despliegue/vm2/install.sh
++++ b/despliegue/vm2/install.sh
+@@ -1,6 +1,6 @@
+ #!/bin/bash
+ # ---------------------------------------------------------------------------
+-# Instalador PortoCaribe para VM2 (192.168.100.59)
++# Instalador PortoCaribe para VM2 (192.168.137.8)
+ #
+ #   PostgreSQL 15        -> base portocaribe, rol monitor (solo SELECT 1)
+ #   fail2ban             -> jails sshd y apache-auth
+@@ -11,7 +11,7 @@
+ #   Recolección SSH      -> usuario monitor + wrapper + sudoers
+ #
+ # Uso (como root):
+-#   IP_VM1=192.168.100.60 bash despliegue/vm2/install.sh [RAIZ]
++#   IP_VM1=192.168.137.93 bash despliegue/vm2/install.sh [RAIZ]
+ # ---------------------------------------------------------------------------
+ set -euo pipefail
+ export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+@@ -21,8 +21,8 @@ export PAGER=cat PSQL_PAGER=cat PGPAGER=cat SYSTEMD_PAGER=cat
+ 
+ BASE="$(cd "$(dirname "$0")" && pwd)"
+ RAIZ="$(cd "${1:-$BASE/../..}" && pwd)"
+-IP_VM1="${IP_VM1:-192.168.100.60}"
+-IP_VM2="${IP_VM2:-192.168.100.59}"
++IP_VM1="${IP_VM1:-192.168.137.93}"
++IP_VM2="${IP_VM2:-192.168.137.8}"
+ SECRETOS=/etc/portocaribe-lab
+ PGPASS_FILE=$SECRETOS/pg_monitor.pass
+ SSL_DIR=/etc/apache2/ssl
+diff --git a/inventario.csv b/inventario.csv
+index 33d067d..9655f81 100644
+--- a/inventario.csv
++++ b/inventario.csv
+@@ -1,6 +1,6 @@
+ recurso,nombre,tipo,vlan,zona,puerto,criticidad,habilitado
+-192.168.100.59,Portal_Clientes,web,50,core,443,alta,true
+-192.168.100.59,PostgreSQL,db,50,core,5432,alta,true
+-192.168.100.59,iperf3_QoS,qos,50,core,5201,media,true
+-192.168.100.60,Asterisk,sip,60,core,5060,alta,true
+-192.168.100.60,Monitor_Portocaribe,monitor,60,core,0,alta,true
++192.168.137.8,Portal_Clientes,web,50,core,443,alta,true
++192.168.137.8,PostgreSQL,db,50,core,5432,alta,true
++192.168.137.8,iperf3_QoS,qos,50,core,5201,media,true
++192.168.137.93,Asterisk,sip,60,core,5060,alta,true
++192.168.137.93,Monitor_Portocaribe,monitor,60,core,0,alta,true
+diff --git a/monitor.toml b/monitor.toml
+index d395093..3864d6e 100644
+--- a/monitor.toml
++++ b/monitor.toml
+@@ -19,10 +19,10 @@ timeout_s = 15
+ recolectar_antes = true
+ 
+ [recoleccion.vm1]
+-host = "192.168.100.60"
++host = "192.168.137.93"
+ 
+ [recoleccion.vm2]
+-host = "192.168.100.59"
++host = "192.168.137.8"
+ 
+ [salida]
+ csv = true
+@@ -36,7 +36,7 @@ rtsp_puerto = 554
+ 
+ [portal]
+ habilitado = true
+-url = "https://192.168.100.59/"
++url = "https://192.168.137.8/"
+ timeout_s = 15
+ umbral_degradado_s = 10.0
+ verificar_tls = false
+@@ -44,7 +44,7 @@ estado_apache = "data/entradas/vm2/apache.txt"
+ 
+ [base_datos]
+ habilitado = true
+-host = "192.168.100.59"
++host = "192.168.137.8"
+ puerto = 5432
+ base = "portocaribe"
+ usuario = "monitor"
+@@ -52,7 +52,7 @@ pgpassfile = "/etc/monitor/pgpass"
+ 
+ [voip]
+ habilitado = true
+-host = "192.168.100.60"
++host = "192.168.137.93"
+ sip_puerto = 5060
+ ami = true
+ ami_puerto = 5038
+@@ -62,7 +62,7 @@ cdr = "data/entradas/vm1/cdr.csv"
+ 
+ [qos]
+ habilitado = false
+-servidor_iperf = "192.168.100.59"
++servidor_iperf = "192.168.137.8"
+ duracion_s = 10
+ ancho_banda = "20M"
+ interfaz = "enp0s3"
+-- 
+2.53.0.windows.2
+

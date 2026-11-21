@@ -16,7 +16,7 @@ import ssl
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Login del portal PortoCaribe")
-    parser.add_argument("ip", nargs="?", default="192.168.100.59")
+    parser.add_argument("ip", nargs="?", default="192.168.137.8")
     parser.add_argument("--usuario", default="cliente.demo")
     parser.add_argument("--password", default="Porto2026*")
     args = parser.parse_args()

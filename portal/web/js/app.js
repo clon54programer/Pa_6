@@ -25,6 +25,9 @@
     errorBusqueda: porId("error-busqueda"),
     resultado: porId("resultado"),
     listaAvisos: porId("lista-avisos"),
+    seccionTablero: porId("seccion-tablero"),
+    tableroIframe: porId("tablero-iframe"),
+    tableroEnlace: porId("tablero-enlace"),
   };
 
   const estado = {
@@ -101,6 +104,23 @@
         UI.crear("li", "aviso aviso-vacio", "No se pudieron cargar los avisos.")
       );
     }
+  }
+
+  async function cargarTablero() {
+    let datos;
+    try {
+      datos = await API.tablero();
+    } catch (error) {
+      /* El tablero es opcional: si el endpoint falla, la página sigue igual. */
+      return;
+    }
+    if (!datos || !datos.habilitado || !datos.url) {
+      return;
+    }
+    elementos.tableroEnlace.href = datos.url;
+    elementos.tableroEnlace.hidden = false;
+    elementos.tableroIframe.src = datos.url;
+    elementos.seccionTablero.hidden = false;
   }
 
   function detenerCuenta() {
@@ -273,6 +293,8 @@
         elementos.formBusqueda.requestSubmit();
       });
     }
+
+    cargarTablero();
 
     API.sesion()
       .then((datos) => {
