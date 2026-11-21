@@ -1,8 +1,8 @@
-# Monitor PortoCaribe — VM1 (192.168.100.60)
+# Monitor PortoCaribe — VM1 (192.168.137.93)
 #
 # Topología del laboratorio (segundo sprint):
-#   VM1 192.168.100.60  monitor + Asterisk (SIP 5060, AMI 5038, CDR)
-#   VM2 192.168.100.59  portal + PostgreSQL + fail2ban + iptables + DHCP
+#   VM1 192.168.137.93  monitor + Asterisk (SIP 5060, AMI 5038, CDR)
+#   VM2 192.168.137.8  portal + PostgreSQL + fail2ban + iptables + DHCP
 #
 # La recolección SSH trae los snapshots de VM2; el CDR de Asterisk se lee
 # localmente porque el monitor corre en la misma máquina.
@@ -30,7 +30,7 @@ timeout_s = 15
 recolectar_antes = true
 
 [recoleccion.vm2]
-host = "192.168.100.59"
+host = "192.168.137.8"
 
 [salida]
 csv = true
@@ -45,7 +45,7 @@ rtsp_puerto = 554
 
 [portal]
 habilitado = true
-url = "https://192.168.100.59/"
+url = "https://192.168.137.8/"
 timeout_s = 15
 umbral_degradado_s = 10.0
 verificar_tls = false
@@ -53,7 +53,7 @@ estado_apache = "/var/lib/portocaribe-monitor/datos/entradas/vm2/apache.txt"
 
 [base_datos]
 habilitado = true
-host = "192.168.100.59"
+host = "192.168.137.8"
 puerto = 5432
 base = "portocaribe"
 usuario = "monitor"
@@ -71,7 +71,7 @@ cdr = "/var/log/asterisk/cdr-csv/Master.csv"
 
 [qos]
 habilitado = true
-servidor_iperf = "192.168.100.59"
+servidor_iperf = "192.168.137.8"
 duracion_s = 10
 ancho_banda = "20M"
 interfaz = "enp0s3"

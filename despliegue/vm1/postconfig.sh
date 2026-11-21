@@ -14,7 +14,7 @@ export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 BASE="$(cd "$(dirname "$0")" && pwd)"
 RAIZ="$(cd "${1:-$BASE/../..}" && pwd)"
-IP_VM2="${IP_VM2:-192.168.100.59}"
+IP_VM2="${IP_VM2:-192.168.137.8}"
 DATOS=/var/lib/portocaribe-monitor/datos
 PUB_LOCAL=/tmp/monitor_key.pub
 PG_TMP=/tmp/pg_monitor.pass

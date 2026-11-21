@@ -1,6 +1,6 @@
 #!/bin/bash
 # Prueba de extremo a extremo de VM2 (portal, PostgreSQL, fail2ban, iptables,
-# DHCP, iperf3 y recolección). Ejecutar como root en 192.168.100.59.
+# DHCP, iperf3 y recolección). Ejecutar como root en 192.168.137.8.
 set -uo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export PAGER=cat PSQL_PAGER=cat SYSTEMD_PAGER=cat

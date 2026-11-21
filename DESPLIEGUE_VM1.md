@@ -1,12 +1,12 @@
 # Despliegue en VM1 — Monitor, Asterisk y portal de respaldo
 
-Guía de la máquina `192.168.100.60` (Debian 12 "bookworm", Python 3.11.2). El despliegue
+Guía de la máquina `192.168.137.93` (Debian 12 "bookworm", Python 3.11.2). El despliegue
 inicial del portal y del monitor fue el **2026-11-07**; el **2026-11-11** se actualizó a la
 red del segundo sprint y se añadieron Asterisk, la recolección SSH y la captura de QoS.
 
 > **Alcance.** VM1 ejecuta el **monitor**, el **Asterisk** del caso (SIP/AMI/CDR) y
 > conserva un **portal de respaldo** con Apache/TLS. El portal principal y los servicios
-> de seguridad viven en [VM2](DESPLIEGUE_VM2.md) (`192.168.100.59`).
+> de seguridad viven en [VM2](DESPLIEGUE_VM2.md) (`192.168.137.8`).
 
 ---
 
@@ -18,12 +18,15 @@ red del segundo sprint y se añadieron Asterisk, la recolección SSH y la captur
 | **Cierre diario del CSV** | — | `portocaribe-cierre.timer` a las 23:59 |
 | **Captura DSCP** | — | `portocaribe-qos-captura.timer` cada 5 min (tcpdump UDP/5201) |
 | **Asterisk** | SIP `5060/udp`, AMI `127.0.0.1:5038` | `asterisk.service` |
-| **Portal de respaldo** | `https://192.168.100.60/` | `portal.service` + Apache `:443` |
+| **Portal de respaldo** | `https://192.168.137.93/` | `portal.service` + Apache `:443` |
 | **Recolección SSH** | hacia VM2 en cada muestra | clave `monitor` + wrapper cerrado |
 
 Credenciales demo del portal: **`cliente.demo` / `Porto2026*`**.
-El certificado TLS es autofirmado (SAN con `portal.portocaribe.local`, `localhost`,
-`127.0.0.1` y `192.168.100.60`).
+El certificado TLS es autofirmado. El certificado que quedó desplegado se generó para
+la red anterior, así que su SAN puede no incluir `192.168.137.93`; el monitor no verifica
+TLS (`verificar_tls = false`), por lo que esto no afecta las pruebas. Para regenerarlo con
+la IP actual, ejecuta el bloque de certificado de [`despliegue/vm1/install.sh`](despliegue/vm1/install.sh)
+y recarga Apache.
 
 El secreto AMI **no está en el TOML ni en el repositorio**: se genera en
 `/etc/monitor/ami.env` (600, root) y `portocaribe-monitor.service` lo carga con
@@ -72,8 +75,8 @@ despliegue/vm1/
 ```bash
 # desde el equipo de trabajo
 tar czf pa6.tgz despliegue monitor portal tests_monitor inventario.csv monitor.toml
-scp pa6.tgz vboxuser@192.168.100.60:/tmp/
-ssh vboxuser@192.168.100.60
+scp pa6.tgz vboxuser@192.168.137.93:/tmp/
+ssh vboxuser@192.168.137.93
 mkdir -p /tmp/pa6desp && tar xzf /tmp/pa6.tgz -C /tmp/pa6desp
 su -
 bash /tmp/pa6desp/despliegue/vm1/packages.sh       # repos de red + paquetes
@@ -136,8 +139,8 @@ JSON por registro.
 Traer datos al PC:
 
 ```powershell
-scp vboxuser@192.168.100.60:/var/lib/portocaribe-monitor/datos/csv/metricas_2026-11-11.csv .
-scp -r vboxuser@192.168.100.60:/var/lib/portocaribe-monitor/datos/raw/2026-11-11 .
+scp vboxuser@192.168.137.93:/var/lib/portocaribe-monitor/datos/csv/metricas_2026-11-11.csv .
+scp -r vboxuser@192.168.137.93:/var/lib/portocaribe-monitor/datos/raw/2026-11-11 .
 ```
 
 ---
@@ -146,7 +149,7 @@ scp -r vboxuser@192.168.100.60:/var/lib/portocaribe-monitor/datos/raw/2026-11-11
 
 | Módulo | Estado | Fuente |
 |---|---|---|
-| **PortalWeb** | activo | HTTPS a `https://192.168.100.59/` + snapshot de Apache de VM2 |
+| **PortalWeb** | activo | HTTPS a `https://192.168.137.8/` + snapshot de Apache de VM2 |
 | **Base de datos** | activo | TCP 5432 + `psql SELECT 1` contra VM2 |
 | **VoIP** | activo | SIP OPTIONS 5060, AMI 5038 y CDR local |
 | **QoS** | activo | `iperf3` UDP 20M con DSCP EF contra VM2 + pcap |
@@ -154,7 +157,8 @@ scp -r vboxuser@192.168.100.60:/var/lib/portocaribe-monitor/datos/raw/2026-11-11
 | **DHCP** | activo | snapshots de VM2 (estado y leases) |
 | **Cámaras** | deshabilitado | no hay cámaras/VLAN 30 en la red del aula |
 
-Una muestra completa reciente dejó **39 filas, todas OK** (0 con problema).
+Una muestra completa reciente dejó **28 filas, todas OK** (0 con problema); con más
+llamadas y eventos de seguridad el total sube hasta 39.
 
 ---
 
@@ -163,7 +167,7 @@ Una muestra completa reciente dejó **39 filas, todas OK** (0 con problema).
 | Comprobación | Resultado |
 |---|---|
 | `portal`, `apache2`, `asterisk`, timers | `active` |
-| `https://192.168.100.59/` desde VM1 | `200`, TLS 1.3 |
+| `https://192.168.137.8/` desde VM1 | `200`, TLS 1.3 |
 | `psql SELECT 1` como `monitor` | OK (PostgreSQL 15.19) |
 | SIP OPTIONS | `401` (Asterisk responde) |
 | AMI `CoreShowChannels` | OK, 0 canales |

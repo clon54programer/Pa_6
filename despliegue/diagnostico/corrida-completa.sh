@@ -9,7 +9,7 @@ set -a
 set +a
 echo "== prueba psql como monitor =="
 runuser -u monitor -- env PGPASSFILE=/etc/monitor/pgpass \
-  psql -w -tAc "SELECT 1" -h 192.168.100.59 -p 5432 -U monitor -d portocaribe
+  psql -w -tAc "SELECT 1" -h 192.168.137.8 -p 5432 -U monitor -d portocaribe
 echo "== corrida =="
 systemctl start --no-block portocaribe-qos-captura.service || true
 sleep 2

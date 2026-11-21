@@ -9,14 +9,16 @@ QoS y seguridad con herramientas livianas, y cómo el portal puede mejorar la ex
 del cliente frente a los problemas originales: consultas superiores a 10 segundos,
 poca visibilidad de la carga y necesidad de controles de acceso.
 
-> **Estado:** monitor implementado y probado (**34 pruebas**), portal validado,
-> documentación y artefactos de despliegue listos. Los datos del portal son ficticios.
+> **Estado:** monitor implementado y probado (**34 pruebas**), portal validado
+> (**35 pruebas**), documentación y artefactos de despliegue listos. Los datos del portal
+> son ficticios. **Verificado el 2026-11-21** en la red `192.168.137.0/24`: corrida del
+> monitor con 0 problemas, portal y respaldo con login, y servicios activos al arranque.
 >
-> **Desplegado en dos VM** (red `192.168.100.0/24`, 2026-11-11):
+> **Desplegado en dos VM** (red `192.168.137.0/24`, 2026-11-11):
 >
-> - **VM1 `192.168.100.60`:** monitor + **Asterisk** (SIP 5060, AMI 5038, CDR) + captura
+> - **VM1 `192.168.137.93`:** monitor + **Asterisk** (SIP 5060, AMI 5038, CDR) + captura
 >   QoS + portal de respaldo. Detalles en [`DESPLIEGUE_VM1.md`](DESPLIEGUE_VM1.md).
-> - **VM2 `192.168.100.59`:** portal principal, **PostgreSQL**, **fail2ban**,
+> - **VM2 `192.168.137.8`:** portal principal, **PostgreSQL**, **fail2ban**,
 >   **iptables** (VLAN30/40-DROP) y **DHCP**. Detalles en
 >   [`DESPLIEGUE_VM2.md`](DESPLIEGUE_VM2.md).
 >
@@ -47,7 +49,7 @@ poca visibilidad de la carga y necesidad de controles de acceso.
 
 ```
                     ┌──────────────────────────────────┐
-                    │ VM1  192.168.100.60              │
+                    │ VM1  192.168.137.93              │
                     │ python -m monitor                │
                     │  · sondas de red                 │
                     │  · SSH de solo lectura a VM2     │
@@ -58,7 +60,7 @@ poca visibilidad de la carga y necesidad de controles de acceso.
                             │ SSH (monitor, sudo acotado)
                             │ HTTPS 443 · psql 5432 · SIP/AMI
                     ┌───────▼──────────────────────────┐
-                    │ VM2  192.168.100.59              │
+                    │ VM2  192.168.137.8              │
                     │ Portal (Apache + Python)         │
                     │ PostgreSQL, fail2ban,            │
                     │ iptables VLAN30/40-DROP, DHCP    │
@@ -248,6 +250,7 @@ python3 -m unittest discover -s tests -v
 
 | Documento | Contenido |
 |---|---|
+| [`GUIA_USO.md`](GUIA_USO.md) | Guía operativa: acceso, servicios, monitor, portal, pruebas y mantenimiento |
 | [`PENDIENTES.md`](PENDIENTES.md) | Estado del proyecto, evidencia y pendientes reales |
 | [`GUIA_PRUEBAS.md`](GUIA_PRUEBAS.md) | Guía paso a paso para probar Asterisk y los servicios de VM2 |
 | [`DESPLIEGUE_VM1.md`](DESPLIEGUE_VM1.md) | Monitor, Asterisk, QoS y portal de respaldo |

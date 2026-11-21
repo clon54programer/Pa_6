@@ -4,11 +4,15 @@ Guía práctica para comprobar, de punta a punta, lo desplegado en el segundo sp
 
 | Máquina | IP | Qué se prueba |
 |---|---|---|
-| **VM1** | `192.168.100.60` | Asterisk: SIP 5060, AMI 5038, CDR, llamadas y filas VoIP del monitor |
-| **VM2** | `192.168.100.59` | portal TLS, PostgreSQL, fail2ban, iptables VLAN30/40, DHCP, iperf3 y recolección SSH |
+| **VM1** | `192.168.137.93` | Asterisk: SIP 5060, AMI 5038, CDR, llamadas y filas VoIP del monitor |
+| **VM2** | `192.168.137.8` | portal TLS, PostgreSQL, fail2ban, iptables VLAN30/40, DHCP, iperf3 y recolección SSH |
 
 Las salidas que aparecen en cada paso son las obtenidas en el laboratorio el
-**2026-11-11**; los valores concretos (IPs, puertos, contadores, fechas) pueden variar.
+**2026-11-11**; los valores concretos (puertos, contadores, fechas) pueden variar.
+
+> **Red actual:** `192.168.137.0/24`; las IPs de esta guía ya están actualizadas.
+> Lo importante es el estado (`OK`, `active`, `con_problema=0`), no los contadores exactos.
+> Para la operación diaria y el mantenimiento, usa [`GUIA_USO.md`](GUIA_USO.md).
 
 ---
 
@@ -19,8 +23,8 @@ Las salidas que aparecen en cada paso son las obtenidas en el laboratorio el
 Desde el PC (PowerShell), con el usuario de laboratorio:
 
 ```powershell
-ssh vboxuser@192.168.100.60     # VM1
-ssh vboxuser@192.168.100.59     # VM2
+ssh vboxuser@192.168.137.93     # VM1
+ssh vboxuser@192.168.137.8     # VM2
 ```
 
 Dentro de la VM, las tareas de root se hacen con `su -` y la contraseña del aula
@@ -44,10 +48,10 @@ red (nada de carpetas compartidas de VirtualBox):
 # VM1: los que se usan en esta guía
 $vm1 = "prueba-asterisk.sh","corrida-completa.sh","ver-jsonl.sh","export-idempotente.sh",
        "senales2.sh","probar-dhcp.sh","generar-trafico-vlan.sh"
-foreach ($s in $vm1) { scp ".\despliegue\diagnostico\$s" vboxuser@192.168.100.60:/tmp/ }
+foreach ($s in $vm1) { scp ".\despliegue\diagnostico\$s" vboxuser@192.168.137.93:/tmp/ }
 
 # VM2
-scp .\despliegue\diagnostico\prueba-vm2.sh vboxuser@192.168.100.59:/tmp/
+scp .\despliegue\diagnostico\prueba-vm2.sh vboxuser@192.168.137.8:/tmp/
 ```
 
 Y se ejecutan como root:
@@ -66,7 +70,7 @@ el navegador; `Invoke-WebRequest` de PowerShell tampoco valida el certificado au
 
 ---
 
-## 1. Asterisk en VM1 (`192.168.100.60`)
+## 1. Asterisk en VM1 (`192.168.137.93`)
 
 El script completo es [`prueba-asterisk.sh`](despliegue/diagnostico/prueba-asterisk.sh);
 abajo se explica cada paso para poder hacerlo a mano.
@@ -231,7 +235,7 @@ PY
 
 ---
 
-## 2. Servicios de VM2 (`192.168.100.59`)
+## 2. Servicios de VM2 (`192.168.137.8`)
 
 El script completo es [`prueba-vm2.sh`](despliegue/diagnostico/prueba-vm2.sh). Cada bloque
 se puede ejecutar por separado.
@@ -261,7 +265,7 @@ cookie       -> sid=<valor> (Secure)
 GET /api/estado -> 200 {"estado": "OK", "latencia_ms": 0.23, ...}
 ```
 
-También sirve abrir `https://192.168.100.59/` en el navegador y entrar con
+También sirve abrir `https://192.168.137.8/` en el navegador y entrar con
 `cliente.demo` / `Porto2026*` (el aviso de certificado es esperado: es autofirmado).
 
 **Desde VM2** (sin salir de la máquina):
@@ -284,14 +288,14 @@ grep '^host portocaribe' /etc/postgresql/15/main/pg_hba.conf
 ```
 
 Esperado: `portocaribe`, `1` y las dos líneas de `pg_hba` (una para
-`192.168.100.60/32` y otra para `127.0.0.1/32`).
+`192.168.137.93/32` y otra para `127.0.0.1/32`).
 
 La prueba que hace el monitor es remota, desde VM1 y como usuario `monitor`:
 
 ```bash
 # en VM1
 runuser -u monitor -- env PGPASSFILE=/etc/monitor/pgpass \
-  psql -w -tAc "SELECT 1" -h 192.168.100.59 -p 5432 -U monitor -d portocaribe
+  psql -w -tAc "SELECT 1" -h 192.168.137.8 -p 5432 -U monitor -d portocaribe
 ```
 
 Esperado: `1`. La contraseña del rol está en `/etc/portocaribe-lab/pg_monitor.pass`
@@ -395,7 +399,7 @@ veth-cli@if5     UP             10.30.60.100/24
 > deduplica por IP (por eso reporta `1 leases activos`).
 
 El servidor DHCP escucha solo en `dummy0` (10.30.50.5/24) y `veth-dhcp`
-(10.30.60.1/24), **nunca** en `192.168.100.0/24`.
+(10.30.60.1/24), **nunca** en `192.168.137.0/24`.
 
 ### 2.7 iperf3 (QoS)
 
@@ -408,7 +412,7 @@ ss -lntp | grep ':5201'
 Prueba real desde VM1 (20 Mbps UDP, 10 s, DSCP EF):
 
 ```bash
-iperf3 -c 192.168.100.59 -u -b 20M -t 5 -S 0xB8
+iperf3 -c 192.168.137.8 -u -b 20M -t 5 -S 0xB8
 ```
 
 Esperado: resumen con `sender`/`receiver`, pérdida cercana a 0 % y `Jitter`. El monitor
@@ -449,7 +453,7 @@ Esperado: `active`.
 | Síntoma | Causa probable | Solución |
 |---|---|---|
 | `psql` se queda colgado | el paginador espera en un TTY | `PAGER=cat PSQL_PAGER=cat` o `psql -P pager=off` |
-| `psql: no pg_hba.conf entry` | falta la línea para `192.168.100.60/32` | revisar `pg_hba.conf` y `systemctl restart postgresql` |
+| `psql: no pg_hba.conf entry` | falta la línea para `192.168.137.93/32` | revisar `pg_hba.conf` y `systemctl restart postgresql` |
 | `password authentication failed` | `pgpass` desactualizado | copiar de nuevo `/etc/portocaribe-lab/pg_monitor.pass` a `/etc/monitor/pgpass` |
 | fail2ban no arranca | backend `systemd` sin `python3-systemd` | `apt-get install -y python3-systemd` |
 | Las reglas VLAN no aparecen | `netfilter-persistent reload` sin plugin | `iptables-restore < /etc/iptables/rules.v4` |
@@ -473,10 +477,10 @@ Hace: captura DSCP, corrida completa del monitor, resumen y volcado de filas. Es
 
 ```
 run_id=... filas=39 ok=39 con_problema=0 ntp=sincronizado
-BaseDatos  OK  192.168.100.59  SELECT 1 OK
+BaseDatos  OK  192.168.137.8  SELECT 1 OK
 DHCP       OK  isc-dhcp-server servicio active; 1 leases activos
-PortalWeb  OK  192.168.100.59  HTTP 200 · TLS TLSv1.3; TTFB ...
-QoS        OK  192.168.100.59  iperf3 UDP 20M
+PortalWeb  OK  192.168.137.8  HTTP 200 · TLS TLSv1.3; TTFB ...
+QoS        OK  192.168.137.8  iperf3 UDP 20M
 QoS        OK  captura        3998 paquetes de 4000 con DSCP 46
 Seguridad  DROPPED  ... VLAN30_BLOCKED / VLAN40_BLOCKED / FAIL2BAN_BAN
 VoIP       OK  127.0.0.1       SIP 401
@@ -509,8 +513,8 @@ bash /tmp/probar-dhcp.sh  # fila DHCP con "1 leases activos"
 | 2 | SIP OPTIONS a 5060 | `401` o `200` | |
 | 3 | AMI login + `CoreShowChannels` | `Success`, `completo: True` | |
 | 4 | Llamada `Local/1000@demo` | fila `ANSWERED` en `Master.csv` | |
-| 5 | Monitor `--solo voip` | 12 filas, 0 problemas | |
-| 6 | Portal `https://192.168.100.59/` | `200` + login `cliente.demo` | |
+| 5 | Monitor `--solo voip` | 4–12 filas según llamadas, 0 problemas | |
+| 6 | Portal `https://192.168.137.8/` | `200` + login `cliente.demo` | |
 | 7 | `psql` remoto como `monitor` | `1` | |
 | 8 | Ban/unban de `203.0.113.99` | 1 → regla `f2b-sshd` → 0 | |
 | 9 | Reglas VLAN30/40 | 4 reglas con comentario | |
@@ -519,7 +523,7 @@ bash /tmp/probar-dhcp.sh  # fila DHCP con "1 leases activos"
 | 12 | iperf3 desde VM1 | ~20 Mbps, pérdida ~0 % | |
 | 13 | `recolectar --host vm2` | 10 snapshots | |
 | 14 | Receta inválida en el wrapper | `receta no permitida`, rc 2 | |
-| 15 | Corrida completa | 37–39 filas, `con_problema=0` | |
+| 15 | Corrida completa | 27–39 filas, `con_problema=0` | |
 | 16 | `export` dos veces | mismo SHA-256 | |
 
 ---
