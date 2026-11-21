@@ -84,3 +84,92 @@ Todas están en [`medidas.dax`](medidas.dax). Las imprescindibles:
 - El CSV del día se reconstruye a las 23:59; hasta entonces el archivo puede estar
   incompleto. Para el tablero en vivo, usar los JSONL o lanzar `export` a demanda.
 - Verificar el SHA-256 del CSV de un día tras dos `export`: debe coincidir.
+
+## 6. Insertar el informe en el portal (`[tablero]`)
+
+La URL del editor —
+`https://app.powerbi.com/groups/me/reports/<informe>/<página>?experience=power-bi` — **no
+se puede pegar en un `<iframe>`**: abre el informe dentro de Power BI Service, exige tu
+sesión y el servicio no permite enmarcarlo desde otro sitio (esa URL responde con
+`X-Frame-Options: deny`). Además `groups/me` es tu área de trabajo personal. Para el
+portal hay que usar el **código de inserción** que Power BI genera en *Archivo → Insertar
+informe*:
+
+| | Publicar en la web | Insertar informe (embed seguro) | Embedded analytics (token) |
+|---|---|---|---|
+| Quién lo ve | cualquiera con el enlace | cuentas con permiso sobre el informe | usuarios del portal, autenticados por la aplicación |
+| Cuenta de Power BI del visitante | no | sí | no |
+| Licencia | Power BI + ajuste del tenant | Pro/PPU, o capacidad Premium/F64 | capacidad Fabric o Power BI Embedded (A/F) |
+| HTTPS en el portal | no | **sí** | sí |
+| Datos | públicos (caché de 1 h) | respeta permisos y RLS | respeta RLS con identidad propia |
+| Cuándo usarlo | demostración con datos ficticios | portal interno con cuentas corporativas | producto real |
+
+### Opción A — Publicar en la web (la más rápida para la demostración)
+
+1. Abre el informe en Power BI Service → **Archivo → Insertar informe → Publicar en la
+   web (público)**.
+2. Elige tamaño 16:9 y la página inicial; copia el enlace (`https://app.powerbi.com/view?r=…`).
+3. Pégalo en `[tablero]` de `portal.toml` con `habilitado = true`.
+
+> **Advertencia:** cualquiera en Internet puede ver el informe y los datos del modelo.
+> Úsalo solo con datos ficticios o públicos. Requiere que el administrador del tenant
+> permita *Publicar en la web*; no admite RLS, DirectQuery ni modelos compartidos.
+
+### Opción B — Insertar informe (embed seguro)
+
+1. **Archivo → Insertar informe → Sitio web o portal**; copia el enlace
+   `https://app.powerbi.com/reportEmbed?reportId=…&autoAuth=true` (puedes añadir
+   `&pageName=` para abrir una página concreta).
+2. Comparte el informe con quienes lo verán (**Compartir → Personas específicas**) o
+   dales el rol *Viewer* si está en un área de trabajo.
+3. Pégalo en `[tablero]`.
+
+Requisitos: la página que lo contiene debe servirse por **HTTPS** (en local con
+`http://127.0.0.1:8080` no se verá); cada visitante necesita cuenta con acceso y licencia
+Pro/PPU salvo que el informe esté en capacidad Premium/F64; hay que permitir ventanas
+emergentes para el inicio de sesión; no funciona con invitados B2B.
+
+Con el informe de este proyecto (ID `d836d9b6-58c8-4ef0-967c-f5a3a6464ce2`), el enlace de
+insertar sería:
+
+```
+https://app.powerbi.com/reportEmbed?reportId=d836d9b6-58c8-4ef0-967c-f5a3a6464ce2&autoAuth=true&pageName=efd8baf7154cb1b0b4ac
+```
+
+Como está en **Mi área de trabajo**, solo lo verá quien tenga acceso a ese informe. Si lo
+vas a mostrar a otras personas, muévelo a un área de trabajo (por ejemplo «PortoCaribe
+Operación») y compártelo desde allí.
+
+### Opción C — Embedded analytics (token de inserción)
+
+Para producción: registrar una aplicación en Microsoft Entra ID, usar una entidad de
+servicio y una capacidad, pedir el token por REST (`GenerateToken`) y montar el informe
+con el SDK `powerbi-client`. El portal no usa esta vía: requeriría JavaScript adicional
+(el repositorio evita CDN) y la lógica del token en el backend.
+
+### Activar el tablero en el portal
+
+1. Edita `[tablero]` en [`portal.toml`](../portal.toml) (producción) o
+   [`portal.dev.toml`](../portal.dev.toml) (local):
+
+   ```toml
+   [tablero]
+   habilitado = true
+   url = "https://app.powerbi.com/reportEmbed?reportId=…&autoAuth=true"
+   ```
+
+2. Valida la configuración:
+
+   ```bash
+   python3 -m portal --config portal.toml --check
+   ```
+
+3. Reinicia el portal (`systemctl restart portal`). Aparece la sección **Tablero de
+   infraestructura** con el informe y un enlace «Abrir en Power BI» de respaldo.
+
+El servidor valida el enlace: solo acepta `https://app.powerbi.com/reportEmbed…` o
+`https://app.powerbi.com/view…` (nunca la URL del editor) y la CSP del portal ya permite
+`frame-src https://app.powerbi.com https://login.microsoftonline.com`. El iframe lo carga
+el **navegador del visitante**, no la VM: el servidor no necesita salida a Internet, pero
+el equipo que ve la página sí.
+
