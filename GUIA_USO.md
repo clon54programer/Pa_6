@@ -258,6 +258,72 @@ runuser -u monitor -- env ASTERISK_AMI_SECRET="$ASTERISK_AMI_SECRET" \
 
 Esperado: 4 filas (SIP, AMI y las dos patas del CDR) y `con_problema=0`.
 
+### Llamada real desde el PC con MicroSIP
+
+MicroSIP es la opción más rápida en Windows: es portable, no requiere instalador y usa
+UDP 5060 por defecto. Descarga el ZIP desde <https://www.microsip.org/downloads> y
+descomprímelo, por ejemplo, en `%LOCALAPPDATA%\MicroSIP` o en una carpeta de trabajo.
+
+La cuenta SIP de demostración es **`1001`**. La contraseña se lee en VM1:
+
+```bash
+ssh -t vboxuser@192.168.137.93 "su -c 'cat /etc/portocaribe-lab/sip_demo.secret'"
+```
+
+En MicroSIP, abre el menú (flecha a la derecha de las pestañas o clic derecho en la
+franja inferior) y elige **Add account...**:
+
+| Campo | Valor |
+|---|---|
+| Account name | `1001` |
+| SIP server | `192.168.137.93` |
+| SIP proxy | vacío |
+| Username | `1001` |
+| Domain | `192.168.137.93` |
+| Auth ID | `1001` (o vacío) |
+| Password | la que devolvió el comando anterior |
+| Transport | `UDP` |
+| Port | `5060` (si el campo no aparece, déjalo así: MicroSIP usa 5060) |
+| STUN / ICE | desactivados |
+| Register | activado |
+
+En VM1 hay que permitir SIP y RTP en `ufw` (el monitor usa loopback y no lo necesita,
+pero el softphone viene desde la LAN):
+
+```bash
+su -
+ufw allow from 192.168.137.0/24 to any port 5060 proto udp comment 'SIP laboratorio'
+ufw allow from 192.168.137.0/24 to any port 10000:20000 proto udp comment 'RTP laboratorio'
+ufw reload
+```
+
+Guarda la cuenta y espera a que MicroSIP quede **Online** (si el estado dice
+`Do Not Disturb`, pulsa el botón **DND** para desactivarlo; las llamadas salientes
+funcionan igual, pero DND rechaza las entrantes).
+
+Marca:
+
+- **`1000`**: contesta, espera 2 s y cuelga.
+- **`2000`**: contesta y reproduce `demo-congrats` (para probar audio).
+
+Verifica el CDR y el monitor:
+
+```bash
+tail -2 /var/log/asterisk/cdr-csv/Master.csv
+cd /opt/portocaribe-monitor
+set -a; . /etc/monitor/ami.env; set +a
+runuser -u monitor -- env ASTERISK_AMI_SECRET="$ASTERISK_AMI_SECRET" \
+  python3 -m monitor run --config /etc/monitor/monitor.toml --solo voip
+```
+
+El CDR debe mostrar `1001 -> 1000` con `ANSWERED`; el monitor debe incluir la fila
+`1001 -> 1000 (ANSWERED)` y terminar con `con_problema=0`.
+
+> **Si MicroSIP dice `Request Timeout`:** revisa `ufw status` en VM1 y que el puerto
+> 5060/udp esté permitido. Si dice `404 Not Found`, el AOR de Asterisk no coincide:
+> debe ser `1001@192.168.137.93` (ver [`despliegue/vm1/asterisk/pjsip.conf`](despliegue/vm1/asterisk/pjsip.conf)).
+> Si dice `401`, la contraseña SIP es incorrecta.
+
 ---
 
 ## 6. PostgreSQL, QoS, DHCP y seguridad

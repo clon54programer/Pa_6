@@ -94,11 +94,14 @@ apache2ctl configtest
 systemctl enable apache2 >/dev/null
 systemctl restart apache2
 
-paso "9/12 Firewall (ufw): 80 y 443"
+paso "9/12 Firewall (ufw): 80, 443, SIP y RTP"
 if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+    RED="${IP_PUBLICA%.*}.0/24"
     ufw allow 80/tcp  comment 'Portal PortoCaribe (redireccion a HTTPS)' >/dev/null
     ufw allow 443/tcp comment 'Portal PortoCaribe (HTTPS)' >/dev/null
-    ufw status | sed -n '1,10p'
+    ufw allow from "$RED" to any port 5060 proto udp comment 'SIP laboratorio' >/dev/null
+    ufw allow from "$RED" to any port 10000:20000 proto udp comment 'RTP laboratorio' >/dev/null
+    ufw status | sed -n '1,15p'
 else
     echo "ufw inactivo o ausente: no se modifica el firewall"
 fi
