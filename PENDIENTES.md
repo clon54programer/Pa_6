@@ -67,6 +67,11 @@ Estado al **2026-11-21**, segundo sprint, sobre la red `192.168.137.0/24`:
   Inventario), páginas sugeridas y refresco.
 - [`powerbi/medidas.dax`](powerbi/medidas.dax): disponibilidad, latencia P95, pérdida,
   jitter, bloqueos VLAN30/40, baneos, llamadas y frescura del dataset.
+- **Inserción en el portal:** sección `[tablero]` habilitada con el enlace público
+  (*Publicar en la web*) del informe; iframe validado en el servidor y
+  `frame-src https://app.powerbi.com` en la CSP. Guía en
+  [`powerbi/README.md`](powerbi/README.md) §6.
+
 
 ---
 
@@ -101,10 +106,11 @@ Al mover las VM a `192.168.137.0/24` se actualizaron `monitor.toml`, `inventario
 |---|---|
 | Corrida completa del monitor | **28 filas, 28 OK, 0 con problema**, `rc=0` |
 | Corrida automática (timer 08:05) | **27 filas, 0 con problema** |
-| Suites | **34/34 monitor**, **35/35 portal** |
+| Suites | **34/34 monitor**, **47/47 portal** |
 | Portal principal y de respaldo | login `200`, búsqueda por contenedor/BL/orden, **3 avisos** |
 | Llamada real desde PC (MicroSIP) | `1001 -> 1000`, `ANSWERED`; el monitor la ve (5 filas VoIP) |
 | Segundo usuario SIP `1002` | Registro `200 OK`; dialplan `_1XXX` para llamadas 1001/1002 |
+| Re-registro de softphones | `remove_existing = yes` evita el `403` cuando la app cambia de puerto |
 | PostgreSQL remoto | `SELECT 1` → `1` |
 | fail2ban | ban y unban de `203.0.113.99` → 1 → 0 |
 | VLAN30/VLAN40 | contadores > 0 y filas `DROPPED` |

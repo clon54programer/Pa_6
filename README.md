@@ -10,7 +10,7 @@ del cliente frente a los problemas originales: consultas superiores a 10 segundo
 poca visibilidad de la carga y necesidad de controles de acceso.
 
 > **Estado:** monitor implementado y probado (**34 pruebas**), portal validado
-> (**35 pruebas**), documentación y artefactos de despliegue listos. Los datos del portal
+> (**47 pruebas**), documentación y artefactos de despliegue listos. Los datos del portal
 > son ficticios. **Verificado el 2026-11-21** en la red `192.168.137.0/24`: corrida del
 > monitor con 0 problemas, portal y respaldo con login, y servicios activos al arranque.
 >
@@ -40,7 +40,7 @@ poca visibilidad de la carga y necesidad de controles de acceso.
 | **Despliegue** | Apache, systemd, cron/timers y recolección SSH | [`apache/`](apache/), [`programacion/`](programacion/), [`config/ssh/`](config/ssh/) |
 | **Despliegue en VM1** | Instalador idempotente, Asterisk, QoS y units del monitor | [`despliegue/vm1/`](despliegue/vm1/), [`DESPLIEGUE_VM1.md`](DESPLIEGUE_VM1.md) |
 | **Despliegue en VM2** | Portal, PostgreSQL, fail2ban, iptables y DHCP | [`despliegue/vm2/`](despliegue/vm2/), [`DESPLIEGUE_VM2.md`](DESPLIEGUE_VM2.md) |
-| **Power BI** | Medidas DAX y guía del tablero | [`powerbi/`](powerbi/) |
+| **Power BI** | Medidas DAX, guía del tablero y cómo insertarlo en el portal | [`powerbi/`](powerbi/) |
 | **Pendientes** | Estado, brechas y prioridades | [`PENDIENTES.md`](PENDIENTES.md) |
 
 ---
@@ -132,6 +132,30 @@ python3 -m monitor recolectar --config monitor.toml --host vm2
 - `--json-logs` emite una línea JSON por registro.
 - `recolectar` trae snapshots por SSH en paralelo (máx. 8); `prune` aplica retención.
 
+### Simulación de uso
+
+[`simulacion_monitor.py`](simulacion_monitor.py) tiene dos modos para demostrar el monitor
+sin tocar la red:
+
+```bash
+# 1) Recorrido del CLI como lo haría un operador (validate, dry-run, run --simulate,
+#    --solo, --json-logs, export dos veces y verificación de idempotencia).
+python3 simulacion_monitor.py demo --config monitor.toml --corridas 3
+
+# 2) Un día completo de muestras simuladas (JSONL v1 + CSV) con incidentes deterministas.
+python3 simulacion_monitor.py dataset --desde 2026-11-20 --horas 24 --paso 300
+```
+
+- `demo` no inventa datos: ejecuta los comandos reales y comprueba rc, JSONL, las 27
+  columnas y el mismo SHA-256 en dos `export`. Usa una copia del TOML que escribe en
+  `simulacion/demo/`, así que no toca el `data/` real.
+- `dataset` escribe en `simulacion/dataset/` (ignorado por git): 288 JSONL, el CSV del día y
+  `reporte_uso_AAAA-MM-DD.md` con disponibilidad, P95, incidentes y línea de tiempo.
+- Todas las filas llevan `fuente = "simulado"`: no son mediciones de la red. El CSV sirve
+  para montar el tablero con [`powerbi/`](powerbi/) sin esperar 24 h de muestreo.
+- Misma `--semilla` produce el mismo CSV; `--sin-incidentes` deja un día limpio y `--solo`
+  filtra módulos.
+
 ### Robustez (§11)
 
 - Reintentos con backoff 0,5 s / 1 s + jitter en todas las sondas.
@@ -166,6 +190,8 @@ wrapper de [`config/ssh/`](config/ssh/), y programar
 - Avisos operativos y canal de soporte (datos de demostración).
 - Widget de rendimiento con medición del servidor (`perf_counter`) y del navegador
   (`performance.now`), sin depender del monitor.
+- Sección opcional **Tablero de infraestructura** con el informe de Power BI insertado
+  (`[tablero]` en el TOML; ver [`powerbi/README.md`](powerbi/README.md) §6).
 - Interfaz responsive, accesible y sin frameworks ni CDN.
 
 ### Ejecución local

@@ -96,6 +96,23 @@ La barra de búsqueda acepta:
 
 El resultado muestra estado, importador, buque, arribo, muelle y el timeline.
 
+### Tablero de Power BI
+
+La sección **Tablero de infraestructura** solo aparece si `[tablero]` está habilitado en
+`/etc/portal/portal.toml`:
+
+```toml
+[tablero]
+habilitado = true
+url = "https://app.powerbi.com/reportEmbed?reportId=…&autoAuth=true"
+```
+
+- Enlace de **Insertar informe** (embed seguro): exige HTTPS y que el visitante tenga
+  cuenta y permiso en Power BI.
+- Enlace de **Publicar en la web**: público, sin cuenta; úsalo solo con datos ficticios.
+- El botón «Abrir en Power BI» abre el informe en otra pestaña si el iframe no carga.
+- Tras cambiar el TOML: `systemctl restart portal`.
+
 ### Servicio y base
 
 ```bash
@@ -350,6 +367,12 @@ No hace falta abrir más puertos: `ufw` ya permite SIP y RTP desde `192.168.137.
 Si ejecutas los dos MicroSIP en el **mismo PC**, cambia el puerto local del segundo a
 `5061` (o usa otro equipo); en PCs distintos ambos pueden usar 5060 sin problema.
 
+> **Apps Android:** Linphone o Zoiper funcionan con los mismos datos. Si la app deja de
+> llamar de repente, suele ser porque cambió de puerto local y el AOR conservaba el
+> contacto anterior. El AOR tiene `max_contacts = 1` y `remove_existing = yes`, así que
+> el siguiente registro reemplaza el viejo automáticamente; si aun así falla, cierra y
+> vuelve a abrir la app para forzar el registro.
+
 > **Si MicroSIP dice `Request Timeout`:** revisa `ufw status` en VM1 y que el puerto
 > 5060/udp esté permitido. Si dice `404 Not Found`, el AOR de Asterisk no coincide:
 > debe ser `1001@192.168.137.93` (ver [`despliegue/vm1/asterisk/pjsip.conf`](despliegue/vm1/asterisk/pjsip.conf)).
@@ -474,7 +497,7 @@ Luego, dentro de la VM:
 mkdir -p /tmp/pa6-tests && tar xzf /tmp/pa6-tests.tgz -C /tmp/pa6-tests
 cd /tmp/pa6-tests
 python3 -m unittest discover -s tests_monitor -v   # 34 pruebas
-python3 -m unittest discover -s tests -v           # 35 pruebas
+python3 -m unittest discover -s tests -v           # 47 pruebas
 ```
 
 Esperado: `OK` en ambas. En Windows hace falta `tzdata` (`python -m pip install tzdata`).
@@ -513,7 +536,7 @@ python .\despliegue\diagnostico\portal-login.py 192.168.137.93
 | `export-idempotente.sh` | mismo SHA-256, idempotente |
 | `senales2.sh` | `rc=1` y JSONL escrito |
 | `probar-dhcp.sh` | 1 lease activo |
-| Suites | 34/34 monitor, 35/35 portal |
+| Suites | 34/34 monitor, 47/47 portal |
 | Portal PC | login 200, cookie Secure, tracking por número/BL/orden, 3 avisos |
 
 ---
@@ -602,6 +625,7 @@ autofirmado; el navegador pedirá aceptarlo.
 | No hay lease DHCP | veth o timer detenido | `systemctl start portocaribe-dhcp-veth portocaribe-dhcp-lease.service` |
 | QoS sin captura | timer detenido o iperf3 caído | `systemctl start portocaribe-qos-captura.service`; `ss -lntp \| grep 5201` |
 | `run` devuelve 1 pero todo está `OK` | hay un `SKIPPED` (VoIP sin llamadas) | Haz una llamada y repite `--solo voip` |
+| La app Android deja de llamar de repente | el softphone cambió de puerto y el AOR conservaba el contacto anterior (`max_contacts=1`) | `remove_existing = yes` en `pjsip.conf` (ya aplicado); re-registrar la app |
 | Muchas filas `FAIL2BAN_BAN` antiguas | el log conserva baneos históricos | Es ruido; el CSV deduplica. Rota `/var/log/fail2ban.log` si quieres limpiarlo |
 | Aviso de certificado | autofirmado y/o SAN viejo | Acepta el aviso o regenera el SAN (sección 8) |
 
