@@ -82,6 +82,17 @@ class API:
             raise ErrorAPI(403, "CSRF", "Token CSRF inválido o ausente.")
         self.auth.cerrar_sesion(sid)
 
+    # ---------------------------------------------------------------- tablero
+    def tablero(self) -> dict:
+        """Enlace de inserción del informe de Power BI, si está configurado.
+
+        No es un secreto: la autenticación la resuelve Power BI dentro del iframe.
+        """
+
+        if not self.cfg.tablero.habilitado:
+            return {"habilitado": False, "url": None}
+        return {"habilitado": True, "url": self.cfg.tablero.url}
+
     # --------------------------------------------------------------- consulta
     def track(self, consulta: str, sid: str | None) -> dict:
         self._requerida(sid)

@@ -112,6 +112,28 @@
       <div id="resultado" class="resultado" aria-live="polite"></div>
     </section>
 
+    <section class="seccion tablero" id="seccion-tablero" aria-labelledby="titulo-tablero" hidden>
+      <div class="seccion-cabecera">
+        <div>
+          <p class="etiqueta">Operación</p>
+          <h2 id="titulo-tablero">Tablero de infraestructura</h2>
+        </div>
+        <a class="boton-fantasma" id="tablero-enlace" href="#" target="_blank"
+           rel="noopener noreferrer" hidden>Abrir en Power BI</a>
+      </div>
+
+      <div class="tablero-marco">
+        <iframe id="tablero-iframe" title="Tablero de infraestructura en Power BI"
+                allowfullscreen></iframe>
+      </div>
+
+      <p class="ayuda">
+        Disponibilidad, latencia, QoS y seguridad del laboratorio. El informe se sirve
+        desde Power BI y respeta los permisos de la cuenta con la que inicies sesión allí.
+        Si el tablero no aparece, ábrelo con «Abrir en Power BI».
+      </p>
+    </section>
+
     <aside class="seccion avisos" aria-labelledby="titulo-avisos">
       <div class="seccion-cabecera">
         <div>

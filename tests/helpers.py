@@ -16,10 +16,11 @@ from portal.config import (
     ConfigRendimiento,
     ConfigSeguridad,
     ConfigServidor,
+    ConfigTablero,
 )
 
 
-def config_prueba(directorio: str | Path) -> Config:
+def config_prueba(directorio: str | Path, tablero: ConfigTablero | None = None) -> Config:
     base = Path(directorio)
     return Config(
         servidor=ConfigServidor(
@@ -42,14 +43,15 @@ def config_prueba(directorio: str | Path) -> Config:
             intentos_maximos_ip=20,
         ),
         rendimiento=ConfigRendimiento(umbral_degradado_ms=10000),
+        tablero=tablero or ConfigTablero(habilitado=False, url=""),
         ruta=base / "portal.toml",
     )
 
 
 class ServidorPrueba:
-    def __init__(self) -> None:
+    def __init__(self, tablero: ConfigTablero | None = None) -> None:
         self._temporal = tempfile.TemporaryDirectory()
-        self.config = config_prueba(self._temporal.name)
+        self.config = config_prueba(self._temporal.name, tablero)
         self.servidor = Servidor(self.config)
         self.hilo = threading.Thread(target=self.servidor.servir, daemon=True)
         self.hilo.start()
