@@ -5,6 +5,8 @@ __pycache__/
 datos/
 certs/
 data/
+simulacion/
+*.demo.toml
 *.log
 
 .tmp/
