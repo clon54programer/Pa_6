@@ -319,6 +319,37 @@ runuser -u monitor -- env ASTERISK_AMI_SECRET="$ASTERISK_AMI_SECRET" \
 El CDR debe mostrar `1001 -> 1000` con `ANSWERED`; el monitor debe incluir la fila
 `1001 -> 1000 (ANSWERED)` y terminar con `con_problema=0`.
 
+### Segundo usuario SIP: `1002`
+
+Para llamar desde **otro Windows**, usa la cuenta `1002`. Su contraseña está en VM1:
+
+```bash
+ssh -t vboxuser@192.168.137.93 "su -c 'cat /etc/portocaribe-lab/sip_demo2.secret'"
+```
+
+Configura MicroSIP en el otro PC exactamente igual que el `1001`, cambiando:
+
+| Campo | Valor |
+|---|---|
+| Account name | `1002` |
+| Username | `1002` |
+| Auth ID | `1002` (o vacío) |
+| Password | la de `/etc/portocaribe-lab/sip_demo2.secret` |
+
+El resto es igual: servidor/dominio `192.168.137.93`, UDP, puerto 5060 (por defecto),
+STUN/ICE desactivados y registro activado.
+
+Los usuarios `1001` y `1002` pueden llamarse entre sí y llamar a las extensiones de
+demostración:
+
+- `1000`: contesta y cuelga a los 2 s.
+- `2000`: reproduce `demo-congrats`.
+- `1001` / `1002`: llamada entre los dos softphones.
+
+No hace falta abrir más puertos: `ufw` ya permite SIP y RTP desde `192.168.137.0/24`.
+Si ejecutas los dos MicroSIP en el **mismo PC**, cambia el puerto local del segundo a
+`5061` (o usa otro equipo); en PCs distintos ambos pueden usar 5060 sin problema.
+
 > **Si MicroSIP dice `Request Timeout`:** revisa `ufw status` en VM1 y que el puerto
 > 5060/udp esté permitido. Si dice `404 Not Found`, el AOR de Asterisk no coincide:
 > debe ser `1001@192.168.137.93` (ver [`despliegue/vm1/asterisk/pjsip.conf`](despliegue/vm1/asterisk/pjsip.conf)).
